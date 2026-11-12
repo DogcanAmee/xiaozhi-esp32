@@ -30,6 +30,8 @@ CI（GitHub Actions 的 `Anan Stack-chan` 工作流）构建完成后，会产�
 
 ## 选对文件
 
+只烧你自己在 `anan/main` 分支上跑出来的那次工作流的 artifact，不要烧别人发来的或别的分支构建的文件。
+
 “下载”文件夹里往往留着以前的旧文件（`merged-binary.bin`、`merged-binary (1).bin` 之类）。烧之前确认用的是这次构建的：
 
 - 用最新解压出来的那个文件夹，不要混用不同次下载的文件；

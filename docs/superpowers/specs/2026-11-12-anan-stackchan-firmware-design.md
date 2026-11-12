@@ -66,7 +66,7 @@
 
 - 情绪映射（表驱动，放在一个常量表里）：`happy/laughing/confident → 轻点头一次`，`confused/thinking → 歪头`，`sad/crying → 低头`，`angry/shocked → 快速小幅摇头`。其余情绪不动。
 - MCP 工具：`self.head.nod`、`self.head.shake`（参数：次数 1–3）。工具描述里写明“表示同意 / 不同意时调用”。保留官方 `self.neck.*` 三个工具。
-- 节流：两次自动动作之间至少 4 秒（常量，可调）。工具调用不受节流限制。
+- 节流：两次自动动作之间至少 4 秒（常量，可调）。工具调用不受这 4 秒限制，但两次工具动作之间至少隔 1 秒。
 
 ### 3.3 灯环
 
@@ -115,7 +115,7 @@
 - `neutral`：真眨眼。帧序列 `neutral` ×N → `relaxed` ×2 → `neutral`，循环。
 - 说话：`neutral` 和 `surprised` 的嘴部区域交替（只合成嘴部矩形，眼睛不变）。先试效果，不自然就退回下一条。
 - 其余情绪：程序生成“呼吸”效果，整张图上下浮动 1–2 像素，4–6 帧循环。不依赖对齐。
-- `listening`：用 `neutral` + 呼吸。
+- 听用户说（Listening）：显示 `neutral`（带眨眼循环），不单独做 `listening` 表情，也没有呼吸效果。
 
 ### 6.3 管线
 
@@ -127,10 +127,10 @@
 
 ### 6.4 待机小动作
 
-- `idle_actions` 在待机满 20–45 秒（随机）后挑一个动画播一遍，回 `neutral`。同一个不连播两次。被唤醒时立即停。
+- `idle_actions` 在待机满 20–45 秒（随机）后挑一个动画播一遍，回 `neutral`。同一个不连播两次。被唤醒时立即停。每个小动作是一个动画文件：`neutral` ×2 → 目标表情图 ×N → `neutral` ×2（一次表情图与 `neutral` 的交叉切换），不是多张关键帧的文件夹。
 - 列表写在 `emote.json` 里以 `idle_` 开头的条目，固件启动时枚举。加新动作不改代码。
 - 第一批不需要新图：`idle_sleepy`（`sleepy` 打瞌睡）、`idle_wink`（`winking`）、`idle_delicious`（`delicious` 舔嘴）。
-- 喝咖啡、玩手机需要新图：每个动作 3–6 张关键帧，角色和构图与现有 21 张一致。由用户生图，放进 `assets-src/anan/idle_<name>/` 即可。
+- 喝咖啡、玩手机这类需要新表情图的动作：新图要和现有 21 张角色、构图一致，按 `scripts/anan_faces/README.md` 加图，再在 `IDLE_ACTIONS` 里加一行；目前没有关键帧文件夹这种机制。
 
 ## 7. 错误处理
 

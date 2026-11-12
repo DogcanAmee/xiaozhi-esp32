@@ -54,7 +54,7 @@ public:
     void OnPhase(Phase phase, int64_t now_ms);
     void OnEmotion(std::string_view emotion, int64_t now_ms);
     void OnManualMove(Pose target, int64_t now_ms);
-    void OnGestureRequest(Gesture g, int count, int64_t now_ms);  // from tools, not throttled
+    void OnGestureRequest(Gesture g, int count, int64_t now_ms);  // from tools; kToolGestureGapMs apart
     void OnFaceTarget(Pose target, int64_t now_ms);
     void OnGestureFinished(int64_t now_ms);
     // The head can move again (e.g. torque back on). In Idle with no manual hold, re-arm the

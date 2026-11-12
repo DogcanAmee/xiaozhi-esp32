@@ -1,6 +1,8 @@
 #include "behavior_director.h"
 
 #include <atomic>
+#include <iterator>
+#include <span>
 
 #include <esp_log.h>
 #include <esp_random.h>
@@ -19,11 +21,16 @@ int64_t NowMs() { return esp_timer_get_time() / 1000; }
 
 // Generated with the faces (scripts/anan_faces). Static storage: the names are string literals
 // that the scheduled display calls below point at.
-static constexpr IdleAction kIdleActions[] = {
+// The trailing sentinel keeps the array non-empty (a zero-length array is not valid C++) when the
+// list is emptied; the span leaves it out, so an empty list simply never plays an action.
+static constexpr IdleAction kIdleActionStorage[] = {
 #define ANAN_IDLE_ACTION(n, d) {n, d},
 #include "anan_idle_actions.inc"
 #undef ANAN_IDLE_ACTION
+    {nullptr, 0},
 };
+static constexpr std::span<const IdleAction> kIdleActions(kIdleActionStorage,
+                                                          std::size(kIdleActionStorage) - 1);
 
 uint32_t EspRandom(uint32_t n) { return n ? esp_random() % n : 0u; }
 
