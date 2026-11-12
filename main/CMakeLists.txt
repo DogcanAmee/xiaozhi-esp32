@@ -1233,6 +1233,16 @@ idf_component_register(SRCS ${SOURCES}
                         ${MAIN_PRIV_REQUIRES_EXTRA}
                     )
 
+# anan P4 spike (Stack-chan only): compile only the esp-dl ops the face model uses.
+if(CONFIG_BOARD_TYPE_STACKCHAN AND NOT CMAKE_BUILD_EARLY_EXPANSION)
+    idf_build_get_property(_anan_components BUILD_COMPONENTS)
+    if("espressif__esp-dl" IN_LIST _anan_components)
+        idf_component_get_property(_anan_espdl_dir espressif__esp-dl COMPONENT_DIR)
+        include(${_anan_espdl_dir}/cmake/compile_register.cmake)
+        esp_dl_compile_add_yml(${CMAKE_CURRENT_SOURCE_DIR}/boards/m5stack/stackchan/esp_dl_compile_req.yml)
+    endif()
+endif()
+
 # Keep project-owned C++ on GNU C++23. ESP-IDF 6 may default to a newer
 # dialect; pin the baseline so main/ does not depend on it.
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
