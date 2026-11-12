@@ -134,38 +134,38 @@ public:
 };
 
 
-// P4 spike: probe which byte order / orientation the detector can see faces in.
+// P4 spike v3: the sensor data is UYVY (odd bytes follow the light; measured on hardware).
+// Convert it ourselves to a half-size RGB888 image and probe 4 orientations.
 struct ProbeMode {
-    dl::image::pix_type_t pix;
-    int orient;  // 0 = as is, 1 = rotated 180, 2 = flipped vertically
+    int orient;  // 0 = as is, 1 = 180, 2 = 90 cw, 3 = 90 ccw
     const char* name;
 };
-const ProbeMode kProbeModes[] = {
-    {dl::image::DL_IMAGE_PIX_TYPE_YUYV, 0, "YUYV/0"},
-    {dl::image::DL_IMAGE_PIX_TYPE_UYVY, 0, "UYVY/0"},
-    {dl::image::DL_IMAGE_PIX_TYPE_YUYV, 1, "YUYV/180"},
-    {dl::image::DL_IMAGE_PIX_TYPE_UYVY, 1, "UYVY/180"},
-    {dl::image::DL_IMAGE_PIX_TYPE_YUYV, 2, "YUYV/vf"},
-    {dl::image::DL_IMAGE_PIX_TYPE_UYVY, 2, "UYVY/vf"},
-};
+const ProbeMode kProbeModes[] = {{0, "r0"}, {1, "r180"}, {2, "r90"}, {3, "r270"}};
 constexpr int kProbeModeCount = sizeof(kProbeModes) / sizeof(kProbeModes[0]);
+constexpr int kSmallW = 160;
+constexpr int kSmallH = 120;
 
-// Works on packed 4:2:2 (4 bytes per 2 pixels). y_first: luma at byte 0 and 2 (YUYV).
-void Reorient(uint8_t* buf, int w, int h, int orient, bool y_first) {
-    if (orient == 1) {
-        size_t n = static_cast<size_t>(w) * h / 2;  // macropixels
-        uint32_t* p = reinterpret_cast<uint32_t*>(buf);
-        for (size_t i = 0, j = n - 1; i < j; ++i, --j) {
-            std::swap(p[i], p[j]);
-        }
-        int a = y_first ? 0 : 1;
-        for (size_t i = 0; i < n; ++i) {
-            std::swap(buf[i * 4 + a], buf[i * 4 + a + 2]);
-        }
-    } else if (orient == 2) {
-        size_t row = static_cast<size_t>(w) * 2;
-        for (int top = 0, bot = h - 1; top < bot; ++top, --bot) {
-            std::swap_ranges(buf + top * row, buf + top * row + row, buf + bot * row);
+inline uint8_t Clamp8(int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
+
+// src: 320x240 UYVY. dst: RGB888, 160x120 (orient 0/1) or 120x160 (orient 2/3).
+void ToSmallRgb(const uint8_t* src, uint8_t* dst, int orient, int& ow, int& oh) {
+    ow = (orient >= 2) ? kSmallH : kSmallW;
+    oh = (orient >= 2) ? kSmallW : kSmallH;
+    for (int y = 0; y < oh; ++y) {
+        for (int x = 0; x < ow; ++x) {
+            int sx, sy;
+            switch (orient) {
+                case 1: sx = kSmallW - 1 - x; sy = kSmallH - 1 - y; break;
+                case 2: sx = y; sy = kSmallH - 1 - x; break;
+                case 3: sx = kSmallW - 1 - y; sy = x; break;
+                default: sx = x; sy = y; break;
+            }
+            const uint8_t* m = src + (static_cast<size_t>(sy) * 2 * 320 + sx * 2) * 2;
+            int u = m[0] - 128, yy = m[1], v = m[2] - 128;
+            uint8_t* d = dst + (static_cast<size_t>(y) * ow + x) * 3;
+            d[0] = Clamp8(yy + ((359 * v) >> 8));
+            d[1] = Clamp8(yy - ((88 * u + 183 * v) >> 8));
+            d[2] = Clamp8(yy + ((454 * u) >> 8));
         }
     }
 }
@@ -230,6 +230,9 @@ void Run(Ctx* ctx) {
     int64_t infer_ms_sum = 0;
     float lp_yaw = 0, lp_pitch = 0;
     bool lp_valid = false;
+    uint8_t* small = nullptr;
+    bool nudged = false;
+    int64_t active_since_ms = 0;
     int probe_mode = 0;
     bool probe_locked = false;
     int probe_misses = 0;
@@ -253,6 +256,8 @@ void Run(Ctx* ctx) {
             infer_ms_sum = 0;
             lp_valid = false;
             last_face_ms = 0;
+            nudged = false;
+            active_since_ms = now;
         }
 
         int w = 0, h = 0;
@@ -272,11 +277,15 @@ void Run(Ctx* ctx) {
             format_logged = true;
         }
 
-        bool packed422 = pix == dl::image::DL_IMAGE_PIX_TYPE_YUYV ||
-                         pix == dl::image::DL_IMAGE_PIX_TYPE_UYVY;
+        bool packed422 = (w == 320 && h == 240) &&
+                         (pix == dl::image::DL_IMAGE_PIX_TYPE_YUYV ||
+                          pix == dl::image::DL_IMAGE_PIX_TYPE_UYVY);
+        dl::image::img_t img = {.data = buf,
+                                .width = static_cast<uint16_t>(w),
+                                .height = static_cast<uint16_t>(h),
+                                .pix_type = pix};
+        int iw = w, ih = h;
         if (packed422) {
-            // Mean of the even and of the odd bytes: luma varies with the scene, chroma sits
-            // near 128. Tells a dead / covered camera from a wrong byte order.
             uint32_t se = 0, so = 0, cnt = 0;
             for (size_t i = 0; i + 1 < static_cast<size_t>(w) * h * 2; i += 64) {
                 se += buf[i];
@@ -285,15 +294,20 @@ void Run(Ctx* ctx) {
             }
             mean_even = cnt ? se / cnt : 0;
             mean_odd = cnt ? so / cnt : 0;
-            const ProbeMode& m = kProbeModes[probe_mode];
-            pix = m.pix;
-            Reorient(buf, w, h, m.orient, pix == dl::image::DL_IMAGE_PIX_TYPE_YUYV);
+            if (small == nullptr) {
+                small = static_cast<uint8_t*>(heap_caps_malloc(
+                    kSmallW * kSmallH * 3, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            }
+            if (small != nullptr) {
+                ToSmallRgb(buf, small, kProbeModes[probe_mode].orient, iw, ih);
+                img.data = small;
+                img.width = static_cast<uint16_t>(iw);
+                img.height = static_cast<uint16_t>(ih);
+                img.pix_type = dl::image::DL_IMAGE_PIX_TYPE_RGB888;
+            } else {
+                packed422 = false;
+            }
         }
-
-        dl::image::img_t img = {.data = buf,
-                                .width = static_cast<uint16_t>(w),
-                                .height = static_cast<uint16_t>(h),
-                                .pix_type = pix};
         int64_t ti = NowMs();
         auto& results = detector->run(img);
         now = NowMs();
@@ -336,15 +350,15 @@ void Run(Ctx* ctx) {
             }
             last_face_ms = now;
             if (now - last_send_ms >= kSettleMs) {
-                float cx = (best->box[0] + best->box[2]) * 0.5f / w - 0.5f;  // -0.5..0.5
-                float cy = (best->box[1] + best->box[3]) * 0.5f / h - 0.5f;
-                if (packed422) {  // map the box back to the sensor's orientation
-                    int orient = kProbeModes[probe_mode].orient;
-                    if (orient == 1) {
-                        cx = -cx;
-                        cy = -cy;
-                    } else if (orient == 2) {
-                        cy = -cy;
+                float u = (best->box[0] + best->box[2]) * 0.5f / iw - 0.5f;  // -0.5..0.5
+                float v = (best->box[1] + best->box[3]) * 0.5f / ih - 0.5f;
+                float cx = u, cy = v;
+                if (packed422) {  // map back to the sensor's orientation
+                    switch (kProbeModes[probe_mode].orient) {
+                        case 1: cx = -u; cy = -v; break;
+                        case 2: cx = v; cy = -u; break;
+                        case 3: cx = -v; cy = u; break;
+                        default: break;
                     }
                 }
                 float ey = kYawSign * cx * kHFovDeg;
@@ -376,7 +390,15 @@ void Run(Ctx* ctx) {
                 }
             }
         }
-        // Else: nothing is sent; after kLostMs the filter restarts on the next face.
+        else if (!nudged && now - active_since_ms > 3000 && ctx->director != nullptr &&
+                 ctx->director->tracking_enabled()) {
+            // P4 spike v3: the rest pose looks level; a seated user's face is usually above
+            // the frame. Look up once per Listening session when nothing was found.
+            ctx->director->RequestFaceDelta(0, 20);
+            nudged = true;
+            last_send_ms = now;
+            ++sends;
+        }
 
         if (now - window_start >= kReportMs) {
             float secs = (now - window_start) / 1000.0f;
