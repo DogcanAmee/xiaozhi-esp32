@@ -46,7 +46,7 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           source "$IDF_PATH/export.sh"
-          python scripts/build.py m5stack/stackchan --zip
+          python scripts/build.py m5stack/stackchan --zip --language zh-CN --wake-word nihaoxiaozhi
 
       - name: Print wake-word sdkconfig lines
         shell: bash

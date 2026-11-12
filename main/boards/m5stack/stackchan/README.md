@@ -24,6 +24,7 @@ StackChan 是石川真也（Shinya Ishikawa）开源的桌面机器人，M5Stack
 
 ```bash
 python ./scripts/build.py m5stack/stackchan
+python ./scripts/build.py m5stack/stackchan --language zh-CN --wake-word nihaoxiaozhi   # 安安 build
 ```
 
 如需手动编译，请参考 `m5stack/stackchan/config.json` 修改 menuconfig 对应选项。

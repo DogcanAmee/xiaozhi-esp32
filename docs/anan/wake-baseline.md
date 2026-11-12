@@ -17,7 +17,7 @@ CONFIG_SR_WN_WN9_HIESP=y
 说明：原版固件的唤醒词是 "Hi ESP"（`CONFIG_SR_WN_WN9_HIESP`），说话时（listening 状态）唤醒检测是关闭的。
 目标是改成“你好小智”（`CONFIG_SR_WN_WN9_NIHAOXIAOZHI_TTS`），并在 listening 状态保持唤醒检测。
 - 唤醒检测：板级 `config.json` 加 `CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y`（已做）。
-- 唤醒词型号：`scripts/build.py` 按 `--language` / `--wake-word` 选择，板级 `sdkconfig_append` 不能写（主机测试禁止，且会被覆盖）。需要在 CI 构建命令加 `--wake-word nihaoxiaozhi`（待确认）。
+- 唤醒词型号：`scripts/build.py` 按 `--language` / `--wake-word` 选择，板级 `sdkconfig_append` 不能写（主机测试禁止，且会被覆盖）。通过构建参数切换：CI 构建命令加 `--language zh-CN --wake-word nihaoxiaozhi`（已做）。
 
 ## Results (successes out of 10)
 
