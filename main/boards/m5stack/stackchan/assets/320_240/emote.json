@@ -1,0 +1,22 @@
+[
+    {"emote": "happy", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "laughing", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "funny", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "loving", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "embarrassed", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "confident", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "delicious", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "sad", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "crying", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "sleepy", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "silly", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "angry", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "surprised", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "shocked", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "thinking", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "winking", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "relaxed", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "confused", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "neutral", "src": "anan_neutral.eaf", "loop": true, "fps": 5},
+    {"emote": "idle", "src": "anan_neutral.eaf", "loop": true, "fps": 5}
+]
