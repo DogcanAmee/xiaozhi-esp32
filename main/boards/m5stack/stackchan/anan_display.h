@@ -6,6 +6,8 @@
 #include <atomic>
 #include <cstring>
 
+#include <esp_log.h>
+
 #include "behavior_director.h"
 #include "display/emote_display.h"
 
@@ -30,6 +32,7 @@ public:
         if (std::strcmp(emotion, "neutral") == 0) {
             return false;
         }
+        ESP_LOGW("AnanDisplay", "no face for emotion \"%.23s\"; showing neutral", emotion);
         return EmoteDisplay::SetEmotion("neutral");
     }
 

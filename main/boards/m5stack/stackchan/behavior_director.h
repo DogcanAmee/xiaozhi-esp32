@@ -42,9 +42,10 @@ public:
     void NotifyStateChanged();
     // Null-safe. Dropped (with a log line) if the queue is full.
     void NotifyEmotion(const char* emotion);
-    // For MCP tools. Dropped (with a warning) if the queue is full.
-    void RequestGesture(Gesture g, int count);
-    void RequestManualMove(int yaw_deg, int pitch_deg);
+    // For MCP tools. False (and a warning) if the request was dropped: queue full or not
+    // started.
+    bool RequestGesture(Gesture g, int count);
+    bool RequestManualMove(int yaw_deg, int pitch_deg);
 
     // Latest level outputs, for later phases (P4 face tracking, P5 idle actions).
     bool tracking_enabled() const { return tracking_enabled_.load(std::memory_order_relaxed); }
@@ -76,7 +77,7 @@ private:
 
     static void TaskEntry(void* self);
     void Run();
-    void Post(const DirectorInput& in);
+    bool Post(const DirectorInput& in);
     void ApplyLevelsAndLed(const Outputs& out);
 
     std::optional<NeckHead> head_;  // empty when there is no neck

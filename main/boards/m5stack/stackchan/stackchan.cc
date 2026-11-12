@@ -425,13 +425,14 @@ private:
 
         mcp_server.AddTool(
             "self.neck.set_angles",
-            "Turn the head to an absolute yaw and pitch and hold it there for about 8 seconds. "
-            "Non-blocking: this returns as soon as the move is accepted. Pitch is limited to the "
-            "range the neck can reach without hitting a stop; yaw is limited to -45..45 and the "
-            "result reports the angles actually used. duration_ms is accepted but ignored: the "
-            "head always turns at its own natural speed.",
+            "Turn the head to an absolute yaw and pitch and hold it there. When idle, the head "
+            "returns to rest after about 8 seconds; during a conversation it stays until the "
+            "conversation ends. Non-blocking: this returns as soon as the move is accepted. "
+            "Pitch is limited to the range the neck can reach without hitting a stop. "
+            "duration_ms is accepted but ignored: the head turns at its own natural speed.",
             PropertyList({
-                Property("yaw", kPropertyTypeInteger, -90, 90),
+                // The range the behavior director applies (anan::kYawMin..kYawMax).
+                Property("yaw", kPropertyTypeInteger, anan::kYawMin, anan::kYawMax),
                 // The same bounds the write path clamps to, declared here so an out-of-range
                 // request is refused with a message instead of being silently clamped.
                 Property("pitch", kPropertyTypeInteger, SAFE_PITCH_MIN, SAFE_PITCH_MAX),
@@ -454,7 +455,9 @@ private:
                     // The director owns the head: a manual turn holds for a while, then the
                     // normal behavior takes over again. It moves at its own default speed.
                     anan::Pose used = anan::ClampPose({yaw, pitch});
-                    director_->RequestManualMove(used.yaw_deg, used.pitch_deg);
+                    if (!director_->RequestManualMove(used.yaw_deg, used.pitch_deg)) {
+                        return std::unexpected("busy, try again");
+                    }
                     cJSON* root = cJSON_CreateObject();
                     cJSON_AddNumberToObject(root, "yaw", used.yaw_deg);
                     cJSON_AddNumberToObject(root, "pitch", used.pitch_deg);
@@ -522,7 +525,9 @@ private:
             return std::unexpected("torque is off; enable it with self.neck.set_torque "
                                    "before asking the head to move");
         }
-        director_->RequestGesture(gesture, anan::ClampGestureCount(count));
+        if (!director_->RequestGesture(gesture, anan::ClampGestureCount(count))) {
+            return std::unexpected("busy, try again");
+        }
         return true;
     }
 

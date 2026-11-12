@@ -43,13 +43,14 @@ idf.py flash
 | 工具 | 作用 |
 |---|---|
 | `self.neck.get_angles` | 读当前偏航 / 俯仰角，以及总线有没有应答 |
-| `self.neck.set_angles` | 转到目标角并停住约 8 秒，之后交还给行为规则；偏航限 −45..45，`duration_ms` 保留但不再使用 |
+| `self.neck.set_angles` | 转到目标角并停住：待机时约 8 秒后回正中，对话中一直停到对话结束；偏航 −45..45，`duration_ms` 保留但不再使用 |
 | `self.neck.set_torque` | 开关舵机扭矩 |
 | `self.head.nod` | 点头，`count` 1–3（默认 1）；同意或说“是”时调用 |
 | `self.head.shake` | 摇头，`count` 1–3（默认 1）；不同意或说“不”时调用 |
 
 角度以中立姿态为零点，抬头为正。脖子不可用时 `self.head.*` 返回错误 “the neck is unavailable”；
-扭矩关着时所有动头工具都拒绝执行。
+扭矩关着时所有动头工具都拒绝执行；请求队列满时返回 “busy, try again”。
+两次点头 / 摇头工具调用至少隔 1 秒，间隔更短的请求被忽略。
 
 **行为规则**
 

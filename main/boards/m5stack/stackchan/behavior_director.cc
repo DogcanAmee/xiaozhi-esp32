@@ -65,22 +65,24 @@ void BehaviorDirector::NotifyEmotion(const char* emotion) {
     }
 }
 
-void BehaviorDirector::RequestGesture(Gesture g, int count) {
-    Post(DirectorInput::GestureRequest(g, count));
+bool BehaviorDirector::RequestGesture(Gesture g, int count) {
+    return Post(DirectorInput::GestureRequest(g, count));
 }
 
-void BehaviorDirector::RequestManualMove(int yaw_deg, int pitch_deg) {
-    Post(DirectorInput::ManualMove(yaw_deg, pitch_deg));
+bool BehaviorDirector::RequestManualMove(int yaw_deg, int pitch_deg) {
+    return Post(DirectorInput::ManualMove(yaw_deg, pitch_deg));
 }
 
-void BehaviorDirector::Post(const DirectorInput& in) {
+bool BehaviorDirector::Post(const DirectorInput& in) {
     if (queue_ == nullptr) {
         ESP_LOGW(TAG, "not started; request dropped");
-        return;
+        return false;
     }
     if (xQueueSend(queue_, &in, 0) != pdTRUE) {
         ESP_LOGW(TAG, "queue full; request dropped");
+        return false;
     }
+    return true;
 }
 
 void BehaviorDirector::TaskEntry(void* self) { static_cast<BehaviorDirector*>(self)->Run(); }
