@@ -100,8 +100,8 @@ void BehaviorCore::OnManualMove(Pose target, int64_t now_ms) {
 
 void BehaviorCore::OnGestureRequest(Gesture g, int count, int64_t now_ms) {
     Advance(now_ms);
-    // Manual > Gesture: a person turning the head by hand wins over a tool request.
-    if (g == Gesture::None || manual_active_) {
+    // Tool gestures are allowed during a manual hold; the hold timer is unchanged.
+    if (g == Gesture::None) {
         return;
     }
     if (gesture_active_) {
@@ -123,11 +123,13 @@ void BehaviorCore::OnGestureFinished(int64_t now_ms) {
 }
 
 HeadOwner BehaviorCore::owner() const {
-    if (manual_active_) {
-        return HeadOwner::Manual;
-    }
+    // A gesture started by a tool request during a manual hold owns the head until it
+    // finishes (OnManualMove itself cancels any running gesture).
     if (gesture_active_) {
         return HeadOwner::Gesture;
+    }
+    if (manual_active_) {
+        return HeadOwner::Manual;
     }
     if (phase_ == Phase::Listening) {
         return HeadOwner::Tracking;

@@ -277,6 +277,35 @@ void led_phase_and_emotion_follow_inputs() {
     assert(o.led_emotion.empty());
 }
 
+void tool_gesture_allowed_during_manual_hold() {
+    BehaviorCore c;
+    SetPhase(c, Phase::Speaking, -150);
+    c.OnManualMove({10, 10}, 0);
+    assert(Is(c.Poll(0).move_to, (Pose{10, 10})));
+    c.OnGestureRequest(Gesture::Nod, 1, 1000);
+    Outputs o = c.Poll(1000);
+    assert(o.start_gesture == Gesture::Nod);
+    assert(!o.cancel_gesture);
+    assert(c.owner() == HeadOwner::Gesture);
+    c.OnGestureFinished(2000);
+    o = c.Poll(2000);
+    assert(c.owner() == HeadOwner::Manual);
+    assert(!o.move_to.has_value());
+    assert(o.start_gesture == Gesture::None);
+    // hold timer unchanged: still expires at kManualHoldMs
+    c.Poll(kManualHoldMs);
+    assert(c.owner() == HeadOwner::Hold);
+}
+
+void auto_gesture_not_emitted_while_gesture_active() {
+    BehaviorCore c;
+    SetPhase(c, Phase::Speaking, -150);
+    c.OnEmotion("happy", 0);
+    assert(c.Poll(0).start_gesture == Gesture::Nod);
+    c.OnEmotion("happy", 5000);
+    assert(c.Poll(5000).start_gesture == Gesture::None);
+}
+
 }  // namespace
 
 int main() {
@@ -297,6 +326,8 @@ int main() {
     phase_flapping_within_150ms_is_ignored();
     emotion_outside_speaking_does_not_gesture();
     led_phase_and_emotion_follow_inputs();
+    tool_gesture_allowed_during_manual_hold();
+    auto_gesture_not_emitted_while_gesture_active();
     std::puts("test_behavior_core: all passed");
     return 0;
 }
