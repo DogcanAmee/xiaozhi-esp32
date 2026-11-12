@@ -5,6 +5,7 @@
 // No ESP-IDF dependency: compiled and tested on the host.
 
 #include <cstdint>
+#include <optional>
 
 #include "behavior_core.h"
 
@@ -13,6 +14,10 @@ namespace anan {
 // With no speech since the request, close this long after it (the LLM called the tool without
 // saying goodbye).
 inline constexpr int64_t kRestSpeechWaitMs = 4000;
+// After the goodbye, the device must stay Listening this long before the close. The server
+// sometimes ends the conversation itself after a goodbye; waiting lets that happen first
+// (Idle drops the request) instead of racing it with a toggle that could reopen one.
+inline constexpr int64_t kRestGraceMs = 1500;
 // A pending request this old is dropped without closing.
 inline constexpr int64_t kRestExpireMs = 30000;
 
@@ -23,9 +28,10 @@ public:
     void Request(int64_t now_ms);
 
     // Call every iteration with the settled phase. Returns true exactly once per request, and
-    // only while `phase` is Listening: on the first Listening after a Speaking phase seen since
-    // the request, or kRestSpeechWaitMs after the request if no speech began. Idle or Other
-    // drops the request (the conversation ended some other way); so does kRestExpireMs.
+    // only while `phase` is Listening: once Listening has lasted kRestGraceMs without a break
+    // after a Speaking phase seen since the request (Speaking again restarts that wait), or
+    // kRestSpeechWaitMs after the request if no speech began. Idle or Other drops the request
+    // (the conversation ended some other way); so does kRestExpireMs.
     bool Step(Phase phase, int64_t now_ms);
 
     bool pending() const { return pending_; }
@@ -34,6 +40,8 @@ private:
     bool pending_ = false;
     int64_t requested_ms_ = 0;
     bool saw_speaking_ = false;
+    // Start of the unbroken Listening after the goodbye; empty while not in it.
+    std::optional<int64_t> listening_since_;
 };
 
 }  // namespace anan

@@ -116,8 +116,11 @@ void BehaviorDirector::EndConversation() {
     // ToggleChatState() closes the audio channel only in Listening; in Idle it would open a
     // conversation and in Speaking abort the speech. The director's phase lags the device
     // state, so check it again on the main task. ToggleChatState() itself only sets an event
-    // bit that the main loop handles on its next pass, so a state change in between (e.g. the
-    // server closing the channel at the same moment) can still reach the toggle.
+    // bit that the main loop handles on its next pass, so a state change in between can still
+    // reach the toggle. RestRequest keeps that unlikely: it waits kRestGraceMs of unbroken
+    // Listening after the goodbye, and a server that ends the conversation itself does so in
+    // that time (Idle drops the request). What remains is the server closing within the few
+    // ms between this check and the toggle, more than 1.5 s after the goodbye.
     Application::GetInstance().Schedule([]() {
         auto& app = Application::GetInstance();
         if (app.GetDeviceState() == kDeviceStateListening) {

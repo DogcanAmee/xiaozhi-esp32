@@ -214,7 +214,8 @@ int CountEnds(DirectorLogic& d, int64_t from, int64_t to) {
 }
 
 // self.conversation.end: the request comes while Listening, the goodbye is spoken, and the
-// close is asked for once, when Listening has settled again. A missing neck changes nothing.
+// close is asked for once, kRestGraceMs after Listening has settled again. A missing neck
+// changes nothing.
 void end_conversation_after_goodbye() {
     FakeHead head({0, 5});
     DirectorLogic with_neck(&head);
@@ -233,8 +234,12 @@ void end_conversation_after_goodbye() {
         assert(CountEnds(*d, 3020, 3140) == 0);
         StepIn(*d, 3160);
         assert(d->core().phase() == Phase::Listening);
+        assert(!d->end_conversation());
+        // Then it must stay Listening for the grace period.
+        assert(CountEnds(*d, 3180, 3160 + kRestGraceMs - 20) == 0);
+        StepIn(*d, 3160 + kRestGraceMs);
         assert(d->end_conversation());
-        assert(CountEnds(*d, 3180, 40000) == 0);
+        assert(CountEnds(*d, 3180 + kRestGraceMs, 40000) == 0);
     }
 }
 
@@ -255,6 +260,9 @@ void end_conversation_ignores_unsettled_listening() {
     StepIn(d, 2020, {}, Phase::Listening);
     assert(CountEnds(d, 2040, 2160) == 0);
     StepIn(d, 2180);
+    assert(!d.end_conversation());
+    assert(CountEnds(d, 2200, 2180 + kRestGraceMs - 20) == 0);
+    StepIn(d, 2180 + kRestGraceMs);
     assert(d.end_conversation());
 }
 

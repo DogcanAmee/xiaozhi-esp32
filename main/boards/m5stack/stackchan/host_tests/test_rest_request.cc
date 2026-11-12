@@ -20,6 +20,18 @@ int Run(RestRequest& r, Phase phase, int64_t from, int64_t to) {
     return closes;
 }
 
+// After the goodbye: Listening from `from` on, the close comes kRestGraceMs later, not before.
+// Returns whether it closed exactly then.
+bool ClosesAfterGrace(RestRequest& r, int64_t from) {
+    if (Run(r, Phase::Listening, from, from + kRestGraceMs - 20) != 0) {
+        return false;
+    }
+    if (r.Step(Phase::Listening, from + kRestGraceMs - 1)) {
+        return false;
+    }
+    return r.Step(Phase::Listening, from + kRestGraceMs);
+}
+
 void nothing_pending_never_closes() {
     RestRequest r;
     assert(Run(r, Phase::Listening, 0, 40000) == 0);
@@ -33,9 +45,9 @@ void request_in_listening_closes_after_the_goodbye() {
     assert(r.pending());
     assert(Run(r, Phase::Listening, 0, 500) == 0);
     assert(Run(r, Phase::Speaking, 520, 3000) == 0);
-    assert(r.Step(Phase::Listening, 3020));
+    assert(ClosesAfterGrace(r, 3020));
     assert(!r.pending());
-    assert(Run(r, Phase::Listening, 3040, 40000) == 0);
+    assert(Run(r, Phase::Listening, 3020 + kRestGraceMs + 20, 40000) == 0);
 }
 
 // The goodbye can run past the speech wait: once speech began, only Listening closes.
@@ -44,7 +56,7 @@ void long_goodbye_waits_for_listening() {
     r.Request(0);
     assert(Run(r, Phase::Listening, 0, 1000) == 0);
     assert(Run(r, Phase::Speaking, 1020, 9000) == 0);
-    assert(r.Step(Phase::Listening, 9020));
+    assert(ClosesAfterGrace(r, 9020));
 }
 
 void request_while_speaking_closes_when_listening_comes() {
@@ -52,8 +64,8 @@ void request_while_speaking_closes_when_listening_comes() {
     assert(!r.Step(Phase::Speaking, 0));
     r.Request(100);
     assert(Run(r, Phase::Speaking, 100, 2000) == 0);
-    assert(r.Step(Phase::Listening, 2020));
-    assert(Run(r, Phase::Listening, 2040, 10000) == 0);
+    assert(ClosesAfterGrace(r, 2020));
+    assert(Run(r, Phase::Listening, 2020 + kRestGraceMs + 20, 10000) == 0);
 }
 
 // The LLM called the tool and said nothing.
@@ -113,7 +125,7 @@ void double_request_keeps_first_timing() {
     s.Request(0);
     assert(Run(s, Phase::Speaking, 0, 1000) == 0);
     s.Request(1020);
-    assert(s.Step(Phase::Listening, 1040));
+    assert(ClosesAfterGrace(s, 1040));
 }
 
 // After a close or a drop, a new request starts fresh.
@@ -121,7 +133,7 @@ void later_request_works_again() {
     RestRequest r;
     r.Request(0);
     assert(Run(r, Phase::Speaking, 0, 1000) == 0);
-    assert(r.Step(Phase::Listening, 1020));
+    assert(ClosesAfterGrace(r, 1020));
 
     // Fresh timing and no carried-over speech: the next close needs speech or the full wait.
     r.Request(50000);
@@ -133,7 +145,7 @@ void later_request_works_again() {
     assert(!r.Step(Phase::Idle, 60020));
     r.Request(70000);
     assert(Run(r, Phase::Speaking, 70000, 71000) == 0);
-    assert(r.Step(Phase::Listening, 71020));
+    assert(ClosesAfterGrace(r, 71020));
 
     // After an expiry.
     r.Request(100000);
@@ -141,7 +153,33 @@ void later_request_works_again() {
     assert(!r.pending());
     r.Request(200000);
     assert(Run(r, Phase::Speaking, 200000, 201000) == 0);
-    assert(r.Step(Phase::Listening, 201020));
+    assert(ClosesAfterGrace(r, 201020));
+}
+
+// The server may end the conversation itself after the goodbye: Idle during the grace period
+// drops the request.
+void idle_during_grace_never_closes() {
+    for (Phase ended : {Phase::Idle, Phase::Other}) {
+        RestRequest r;
+        r.Request(0);
+        assert(Run(r, Phase::Speaking, 0, 2000) == 0);
+        assert(Run(r, Phase::Listening, 2020, 2020 + kRestGraceMs - 40) == 0);
+        assert(!r.Step(ended, 2020 + kRestGraceMs - 20));
+        assert(!r.pending());
+        assert(Run(r, Phase::Listening, 2020 + kRestGraceMs, 40000) == 0);
+    }
+}
+
+// She keeps talking after a pause: the wait restarts from the next return to Listening.
+void speaking_again_during_grace_restarts_the_wait() {
+    RestRequest r;
+    r.Request(0);
+    assert(Run(r, Phase::Speaking, 0, 2000) == 0);
+    assert(Run(r, Phase::Listening, 2020, 2020 + kRestGraceMs - 40) == 0);
+    assert(Run(r, Phase::Speaking, 3500, 6000) == 0);
+    assert(r.pending());
+    assert(ClosesAfterGrace(r, 6020));
+    assert(Run(r, Phase::Listening, 6020 + kRestGraceMs + 20, 40000) == 0);
 }
 
 }  // namespace
@@ -157,6 +195,8 @@ int main() {
     pending_request_expires();
     double_request_keeps_first_timing();
     later_request_works_again();
+    idle_during_grace_never_closes();
+    speaking_again_during_grace_restarts_the_wait();
     std::puts("test_rest_request: all passed");
     return 0;
 }

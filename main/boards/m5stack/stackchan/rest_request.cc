@@ -9,6 +9,7 @@ void RestRequest::Request(int64_t now_ms) {
     pending_ = true;
     requested_ms_ = now_ms;
     saw_speaking_ = false;
+    listening_since_.reset();
 }
 
 bool RestRequest::Step(Phase phase, int64_t now_ms) {
@@ -27,13 +28,21 @@ bool RestRequest::Step(Phase phase, int64_t now_ms) {
             return false;
         case Phase::Speaking:
             saw_speaking_ = true;
+            listening_since_.reset();  // she is still talking: wait for the next Listening
             return false;
         case Phase::Listening:
-            if (saw_speaking_ || elapsed >= kRestSpeechWaitMs) {
-                pending_ = false;
-                return true;
+            if (saw_speaking_) {
+                if (!listening_since_) {
+                    listening_since_ = now_ms;
+                }
+                if (now_ms - *listening_since_ < kRestGraceMs) {
+                    return false;  // give the server time to end the conversation itself
+                }
+            } else if (elapsed < kRestSpeechWaitMs) {
+                return false;
             }
-            return false;
+            pending_ = false;
+            return true;
     }
     return false;
 }
