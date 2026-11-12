@@ -17,7 +17,8 @@
                 "CONFIG_USE_EMOTE_MESSAGE_STYLE=y",
                 "CONFIG_FLASH_EXPRESSION_ASSETS=y",
                 "CONFIG_USE_HOTSPOT_WIFI_PROVISIONING=y",
-                "CONFIG_MMAP_FILE_NAME_LENGTH=32"
+                "CONFIG_MMAP_FILE_NAME_LENGTH=32",
+                "CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y"
             ]
         }
     ]
