@@ -22,3 +22,4 @@ endfunction()
 
 anan_add_host_test(test_behavior_core test_behavior_core.cc ../behavior_core.cc)
 anan_add_host_test(test_head_gestures test_head_gestures.cc ../head_gestures.cc ../behavior_core.cc)
+anan_add_host_test(test_led_color test_led_color.cc ../led_color.cc)
