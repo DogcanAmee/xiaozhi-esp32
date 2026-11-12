@@ -28,3 +28,6 @@ anan_add_host_test(test_director_logic test_director_logic.cc ../director_logic.
 anan_add_host_test(test_rest_request test_rest_request.cc ../rest_request.cc)
 anan_add_host_test(test_idle_actions test_idle_actions.cc ../idle_actions.cc)
 anan_add_host_test(test_tap_detector test_tap_detector.cc)
+anan_add_host_test(test_doa_estimator test_doa_estimator.cc ../doa_estimator.cc)
+anan_add_host_test(test_head_aim test_head_aim.cc ../head_aim.cc)
+anan_add_host_test(test_mic_tap test_mic_tap.cc)

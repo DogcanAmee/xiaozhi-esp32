@@ -68,6 +68,16 @@ public:
     bool idle_actions_enabled() const {
         return idle_actions_enabled_.load(std::memory_order_relaxed);
     }
+    // P4 spike diagnostics, any task: who owns the head (as of the last director step) and the
+    // neck's last commanded target (false without a neck).
+    HeadOwner owner() const { return static_cast<HeadOwner>(owner_.load(std::memory_order_relaxed)); }
+    bool HeadTarget(Pose& out) const {
+        if (!head_) {
+            return false;
+        }
+        out = head_->Target();  // ServoNeck::GetTarget takes its own mutex
+        return true;
+    }
 
 private:
     // ServoNeck as the director's HeadPort. Called only from the director task.
@@ -104,6 +114,7 @@ private:
     std::atomic<bool> state_dirty_{true};  // read the device state once at start
     std::atomic<bool> tracking_enabled_{false};
     std::atomic<bool> idle_actions_enabled_{false};
+    std::atomic<int> owner_{static_cast<int>(HeadOwner::Hold)};
     std::atomic<AnanDisplay*> display_{nullptr};
 
     // Everything below is touched only by the director task.

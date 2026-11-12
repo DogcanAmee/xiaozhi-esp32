@@ -121,6 +121,7 @@ void BehaviorDirector::Run() {
             ++n;
         }
         ApplyLevelsAndLed(logic_.Step(now, phase, std::span<const DirectorInput>(inputs, n)));
+        owner_.store(static_cast<int>(logic_.core().owner()), std::memory_order_relaxed);
         if (logic_.end_conversation()) {
             EndConversation();
         }

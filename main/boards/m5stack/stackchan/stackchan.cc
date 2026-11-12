@@ -1,5 +1,5 @@
 #include "wifi_board.h"
-#include "../core-s3/cores3_audio_codec.h"
+#include "stackchan_audio_codec.h"  // P4 spike: CoreS3AudioCodec + both mics for sound direction
 #include "display/emote_display.h"
 #include "display/lcd_display.h"
 #include "application.h"
@@ -879,7 +879,7 @@ public:
     }
 
     virtual AudioCodec* GetAudioCodec() override {
-        static CoreS3AudioCodec audio_codec(i2c_bus_,
+        static StackChanAudioCodec audio_codec(i2c_bus_,
             AUDIO_INPUT_SAMPLE_RATE,
             AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_GPIO_MCLK,
