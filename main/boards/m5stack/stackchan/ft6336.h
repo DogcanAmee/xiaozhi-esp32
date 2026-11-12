@@ -6,9 +6,10 @@
 // changes, in the global namespace like the original, and logs through the TAG macro of the
 // file that includes it - define TAG before including this header.
 //
-// The one addition is TryUpdateTouchPoint(). I2cDevice::ReadRegs wraps the transfer in
-// ESP_ERROR_CHECK, so a single failed read on the shared bus would abort the firmware; the
-// polling on this board must treat a failed read as "not touched" instead.
+// The additions are TryUpdateTouchPoint() and a non-aborting chip-id read in the constructor.
+// I2cDevice::ReadReg/ReadRegs wrap the transfer in ESP_ERROR_CHECK, so a single failed read on
+// the shared bus would abort the firmware; the polling on this board must treat a failed read
+// as "not touched" instead.
 
 #include <esp_log.h>
 
@@ -23,9 +24,16 @@ public:
     };
 
     Ft6336(i2c_master_bus_handle_t i2c_bus, uint8_t addr) : I2cDevice(i2c_bus, addr) {
-        uint8_t chip_id = ReadReg(0xA3);
-        ESP_LOGI(TAG, "Get chip ID: 0x%02X", chip_id);
         read_buffer_ = new uint8_t[6];
+        // Not ReadReg(): it aborts on a failed transfer, and the chip id is only informational.
+        uint8_t reg = 0xA3;
+        uint8_t chip_id = 0;
+        esp_err_t err = i2c_master_transmit_receive(i2c_device_, &reg, 1, &chip_id, 1, 100);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Get chip ID: 0x%02X", chip_id);
+        } else {
+            ESP_LOGW(TAG, "FT6336 chip ID read failed: %s", esp_err_to_name(err));
+        }
     }
 
     ~Ft6336() { delete[] read_buffer_; }
