@@ -1,0 +1,64 @@
+name: Anan Stack-chan
+
+on:
+  push:
+    branches:
+      - anan/**
+  pull_request:
+    branches:
+      - anan/main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    name: Host tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run host tests (skipped until the suite exists)
+        shell: bash
+        run: |
+          TEST_DIR=main/boards/m5stack/stackchan/host_tests
+          if [[ ! -f "$TEST_DIR/CMakeLists.txt" ]]; then
+            echo "No $TEST_DIR/CMakeLists.txt yet, skipping host tests."
+            exit 0
+          fi
+          cmake -S "$TEST_DIR" -B build-host
+          cmake --build build-host
+          ctest --test-dir build-host --output-on-failure
+
+  firmware:
+    name: Build m5stack/stackchan firmware
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:release-v6.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build firmware
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          source "$IDF_PATH/export.sh"
+          python scripts/build.py m5stack/stackchan --zip
+
+      - name: Print wake-word sdkconfig lines
+        shell: bash
+        run: |
+          echo "=== wake-word related sdkconfig lines ==="
+          grep -E "WAKE_WORD|SR_WN|SR_MN|USE_DEVICE_AEC" sdkconfig || true
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: anan-stackchan-firmware
+          path: |
+            build/merged-binary.bin
+            releases/*.zip
+          if-no-files-found: error
