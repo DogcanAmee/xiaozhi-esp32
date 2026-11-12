@@ -163,6 +163,8 @@ void BehaviorDirector::ApplyIdleFace() {
     // check it again there: a wake-up in between sets its own face, which must not be
     // overwritten. PlayIdleAnimation does not go back through the director, so neither the
     // animation nor its restore counts as a face set by someone else.
+    // Known, accepted: a restore already queued here can land a few ms after an Alert() in
+    // Idle and replace the alert's face with "neutral" (the status text stays).
     Application::GetInstance().Schedule([display, name]() {
         if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle) {
             return;

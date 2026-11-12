@@ -65,6 +65,8 @@ public:
     // that could replace it), apply `phase` if set, feed `inputs`, Poll, drive the head, then
     // decide end_conversation() and the idle face animation from the settled phase.
     // Every Emotion input counts as a face set by someone else (IdleActions::OnExternalEmotion).
+    // Idle actions only play while the last such face was "neutral" (none seen yet: not
+    // neutral), so a standing alert face in Idle is left alone.
     // Returns the Poll outputs for the caller's LED and level-output handling.
     Outputs Step(int64_t now_ms, std::optional<Phase> phase, std::span<const DirectorInput> inputs);
 
@@ -95,6 +97,8 @@ private:
     bool end_conversation_ = false;
     IdleActions idle_;
     IdleActions::Step idle_step_;
+    // The last Emotion input was "neutral". False until the first one.
+    bool last_external_neutral_ = false;
 };
 
 }  // namespace anan

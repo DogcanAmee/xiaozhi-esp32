@@ -79,7 +79,9 @@ Outputs DirectorLogic::Step(int64_t now_ms, std::optional<Phase> phase,
     end_conversation_ = rest_.Step(core_.phase(), now_ms);
     // After Poll too: idle_actions_enabled is false the moment the head is taken or the
     // device leaves Idle, and an emotion fed above has already restarted the timer.
-    idle_step_ = idle_.Tick(out.idle_actions_enabled, now_ms);
+    // Any face other than "neutral" (e.g. a network-error alert that the application keeps
+    // visible in Idle) is left alone; DismissAlert and the next Idle entry send "neutral".
+    idle_step_ = idle_.Tick(out.idle_actions_enabled && last_external_neutral_, now_ms);
     return out;
 }
 
@@ -88,6 +90,7 @@ void DirectorLogic::Feed(const DirectorInput& in, int64_t now_ms) {
         case DirectorInput::Type::Emotion:
             core_.OnEmotion(std::string_view(in.emotion), now_ms);
             idle_.OnExternalEmotion(now_ms);
+            last_external_neutral_ = std::string_view(in.emotion) == "neutral";
             break;
         case DirectorInput::Type::Gesture:
             core_.OnGestureRequest(static_cast<Gesture>(in.a), in.b, now_ms);

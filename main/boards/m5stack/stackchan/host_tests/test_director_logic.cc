@@ -310,9 +310,9 @@ void RunIdle(DirectorLogic& d, int64_t from, int64_t to, IdleSeen& seen) {
 
 // (a) Idle with the head free: one play after the gap, one restore after its duration.
 void idle_action_plays_and_restores() {
-    FakeHead head({0, 5});
+    FakeHead head({20, 30});
     DirectorLogic d(&head, kIdleTwo, ZeroRng);
-    StepIn(d, 0, {}, Phase::Idle);
+    StepIn(d, 0, {DirectorInput::Emotion("neutral")}, Phase::Idle);  // as the app does
     assert(d.idle_play() == nullptr && !d.idle_restore());
     IdleSeen seen;
     RunIdle(d, 20, 20000 + 3000, seen);  // Idle settles at 160; the gap ends at 20160
@@ -321,14 +321,17 @@ void idle_action_plays_and_restores() {
     assert(seen.play_times[0] == 160 + kIdleGapMinMs);
     assert(seen.restore_times.size() == 1);
     assert(seen.restore_times[0] == seen.play_times[0] + 1800);
-    // The idle action never moves the head beyond the one return-to-rest of entering Idle.
-    assert(head.moves.size() <= 1);
+    // The only head move is the return to rest on entering Idle (started off rest on
+    // purpose); the idle action itself moves nothing.
+    assert(head.moves.size() == 1);
+    assert(Same(head.moves[0].pose, kRestPose));
+    assert(head.moves[0].duration_ms == kReturnToRestMs);
 }
 
 // (b) Woken while an action plays: Listening stops it, and no restore is ever asked for.
 void idle_action_stopped_by_listening_never_restores() {
     DirectorLogic d(nullptr, kIdleTwo, ZeroRng);
-    StepIn(d, 0, {}, Phase::Idle);
+    StepIn(d, 0, {DirectorInput::Emotion("neutral")}, Phase::Idle);  // as the app does
     IdleSeen seen;
     RunIdle(d, 20, 160 + kIdleGapMinMs, seen);
     assert(seen.plays.size() == 1);
@@ -343,7 +346,7 @@ void idle_action_stopped_by_listening_never_restores() {
 // the timer: no play until a full gap after it.
 void external_emotion_in_idle_restarts_idle_timer() {
     DirectorLogic d(nullptr, kIdleTwo, ZeroRng);
-    StepIn(d, 0, {}, Phase::Idle);
+    StepIn(d, 0, {DirectorInput::Emotion("neutral")}, Phase::Idle);  // as the app does
     IdleSeen seen;
     RunIdle(d, 20, 10000, seen);
     StepIn(d, 10020, {DirectorInput::Emotion("neutral")});
@@ -356,7 +359,7 @@ void external_emotion_in_idle_restarts_idle_timer() {
 // (d) No actions: nothing is ever emitted.
 void empty_idle_list_emits_nothing() {
     DirectorLogic d(nullptr);
-    StepIn(d, 0, {}, Phase::Idle);
+    StepIn(d, 0, {DirectorInput::Emotion("neutral")}, Phase::Idle);  // as the app does
     IdleSeen seen;
     RunIdle(d, 20, 300000, seen);
     assert(seen.plays.empty() && seen.restore_times.empty());
@@ -366,7 +369,7 @@ void empty_idle_list_emits_nothing() {
 void manual_hold_in_idle_blocks_idle_actions() {
     FakeHead head({0, 5});
     DirectorLogic d(&head, kIdleTwo, ZeroRng);
-    StepIn(d, 0, {}, Phase::Idle);
+    StepIn(d, 0, {DirectorInput::Emotion("neutral")}, Phase::Idle);  // as the app does
     IdleSeen seen;
     RunIdle(d, 20, 19000, seen);
     // Keep turning the head every few seconds, past the point the gap would have ended.
@@ -380,6 +383,48 @@ void manual_hold_in_idle_blocks_idle_actions() {
         assert(d.idle_play() == nullptr && !d.idle_restore());
     }
     assert(seen.plays.empty());
+}
+
+// (f) A face other than "neutral" in Idle (e.g. a network-error alert the app keeps visible)
+// is left alone; the next "neutral" (DismissAlert, next Idle entry) lets idle actions resume
+// after a full gap.
+void non_neutral_face_in_idle_blocks_idle_actions() {
+    DirectorLogic d(nullptr, kIdleTwo, ZeroRng);
+    StepIn(d, 0, {DirectorInput::Emotion("neutral")}, Phase::Idle);
+    IdleSeen seen;
+    RunIdle(d, 20, 5000, seen);
+    StepIn(d, 5020, {DirectorInput::Emotion("sad")});
+    RunIdle(d, 5040, 65040, seen);
+    assert(seen.plays.empty() && seen.restore_times.empty());
+    StepIn(d, 65060, {DirectorInput::Emotion("neutral")});
+    RunIdle(d, 65080, 65060 + kIdleGapMinMs - 20, seen);
+    assert(seen.plays.empty());
+    RunIdle(d, 65060 + kIdleGapMinMs, 65060 + kIdleGapMinMs, seen);
+    assert(seen.plays.size() == 1);
+}
+
+// (g) Before the app has set any face, nothing plays.
+void no_idle_actions_before_first_neutral() {
+    DirectorLogic d(nullptr, kIdleTwo, ZeroRng);
+    StepIn(d, 0, {}, Phase::Idle);
+    IdleSeen seen;
+    RunIdle(d, 20, 120000, seen);
+    assert(seen.plays.empty() && seen.restore_times.empty());
+}
+
+// (h) A non-neutral face arriving while an idle action plays cancels it with no restore,
+// and nothing more plays until "neutral" again.
+void non_neutral_face_cancels_playing_action_without_restore() {
+    DirectorLogic d(nullptr, kIdleTwo, ZeroRng);
+    StepIn(d, 0, {DirectorInput::Emotion("neutral")}, Phase::Idle);
+    IdleSeen seen;
+    RunIdle(d, 20, 160 + kIdleGapMinMs, seen);
+    assert(seen.plays.size() == 1);
+    StepIn(d, 160 + kIdleGapMinMs + 200, {DirectorInput::Emotion("triangle_exclamation")});
+    assert(d.idle_play() == nullptr && !d.idle_restore());
+    RunIdle(d, 160 + kIdleGapMinMs + 220, 200000, seen);
+    assert(seen.plays.size() == 1);
+    assert(seen.restore_times.empty());
 }
 
 }  // namespace
@@ -401,6 +446,9 @@ int main() {
     external_emotion_in_idle_restarts_idle_timer();
     empty_idle_list_emits_nothing();
     manual_hold_in_idle_blocks_idle_actions();
+    non_neutral_face_in_idle_blocks_idle_actions();
+    no_idle_actions_before_first_neutral();
+    non_neutral_face_cancels_playing_action_without_restore();
     std::puts("test_director_logic: all passed");
     return 0;
 }
