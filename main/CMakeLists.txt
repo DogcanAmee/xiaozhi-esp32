@@ -262,6 +262,10 @@ elseif(CONFIG_BOARD_TYPE_STACKCHAN)
     # Shared with m5stack/core-s3 rather than copied: this robot is built on that board, and the
     # codec is the same AW88298 + ES7210 pair behind the same pins.
     list(APPEND SOURCES "boards/m5stack/core-s3/cores3_audio_codec.cc")
+    # StackChan packs its own full-screen face animations instead of the stock eye animations;
+    # the emote pack is staged in the build tree (see the staging block further down).
+    set(STACKCHAN_ASSETS_STAGING "${CMAKE_BINARY_DIR}/stackchan-assets")
+    set(EMOTE_EXTERNAL_PATH "${STACKCHAN_ASSETS_STAGING}")
 elseif(CONFIG_BOARD_TYPE_M5STACK_STICK_S3)
     set(BOARD_DIR "m5stack/stick-s3")
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_16_4)
@@ -1332,6 +1336,37 @@ if(CONFIG_BOARD_TYPE_ESP_VOCAT OR CONFIG_BOARD_TYPE_CYBERAI_VOCAT_V2_0 OR CONFIG
         )
     else()
         message(WARNING "esp_emote_assets component not found; ESP-VoCat custom emotes will be skipped")
+    endif()
+endif()
+
+if(CONFIG_BOARD_TYPE_STACKCHAN)
+    # Stage the stock emote pack, then overlay this board's own layout, emote list and face
+    # animations. The stock icons, listen animation and config.json are kept; layout.json moves the
+    # face to the full screen, emote.json maps every emotion (plus the idle actions) to a StackChan
+    # face file, and emoji/*.eaf are those face files. Same approach as the esp-vocat block above.
+    find_component_by_pattern("esp_emote_assets" EMOTE_ASSETS_COMPONENT EMOTE_ASSETS_PATH)
+    if(EMOTE_ASSETS_PATH)
+        set(STACKCHAN_ASSETS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/boards/m5stack/stackchan")
+        file(REMOVE_RECURSE "${STACKCHAN_ASSETS_STAGING}")
+        file(REMOVE
+            "${CMAKE_BINARY_DIR}/expression_assets.bin"
+            "${CMAKE_BINARY_DIR}/expression_assets.bin.validated"
+        )
+        file(MAKE_DIRECTORY "${STACKCHAN_ASSETS_STAGING}/320_240")
+        file(MAKE_DIRECTORY "${STACKCHAN_ASSETS_STAGING}/emoji_large")
+        file(COPY "${EMOTE_ASSETS_PATH}/emoji_large/" DESTINATION "${STACKCHAN_ASSETS_STAGING}/emoji_large")
+        file(COPY "${EMOTE_ASSETS_PATH}/320_240/config.json" DESTINATION "${STACKCHAN_ASSETS_STAGING}/320_240")
+        file(COPY "${STACKCHAN_ASSETS_SRC}/assets/320_240/layout.json" DESTINATION "${STACKCHAN_ASSETS_STAGING}/320_240")
+        file(COPY "${STACKCHAN_ASSETS_SRC}/assets/320_240/emote.json" DESTINATION "${STACKCHAN_ASSETS_STAGING}/320_240")
+        file(GLOB STACKCHAN_FACE_FILES CONFIGURE_DEPENDS "${STACKCHAN_ASSETS_SRC}/emoji/*.eaf")
+        file(COPY ${STACKCHAN_FACE_FILES} DESTINATION "${STACKCHAN_ASSETS_STAGING}/emoji_large")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${STACKCHAN_ASSETS_SRC}/assets/320_240/layout.json"
+            "${STACKCHAN_ASSETS_SRC}/assets/320_240/emote.json"
+            ${STACKCHAN_FACE_FILES}
+        )
+    else()
+        message(WARNING "esp_emote_assets component not found; StackChan custom faces will be skipped")
     endif()
 endif()
 

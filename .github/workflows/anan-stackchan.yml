@@ -26,6 +26,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install Pillow
+        shell: bash
+        run: |
+          python3 -m pip install --user pillow \
+            || python3 -m pip install --user --break-system-packages pillow
+
+      - name: Run face script tests
+        shell: bash
+        run: python3 -m unittest discover -s scripts/anan_faces/tests -v
+
       - name: Run host tests (skipped until the suite exists)
         shell: bash
         run: |
@@ -68,5 +78,7 @@ jobs:
           name: anan-stackchan-firmware
           path: |
             build/merged-binary.bin
+            build/xiaozhi.bin
+            build/configured_assets.bin
             releases/*.zip
           if-no-files-found: error

@@ -38,6 +38,17 @@ idf.py flash
 > [!NOTE]
 > 进入下载模式：长按复位按键（约 3 秒），直至内部指示灯亮绿色，松开按键。
 
+**安安的脸**
+
+待机、说话时屏幕上的脸是安安的 24 个全屏动画（21 个表情 + 3 个待机小动作），不再用官方的眼睛动画。
+
+- 源图：`assets-src/anan/`（21 张 640×480）。
+- 生成物：`emoji/anan_*.eaf`、`assets/320_240/emote.json`、`anan_idle_actions.inc`，都提交进仓库，编译固件不需要 Pillow。
+- `assets/320_240/layout.json` 是官方 320×240 布局，只把 `eye_anim` 改成居中全屏。
+- 编译时 `main/CMakeLists.txt` 把官方表情包暂存到 `build/stackchan-assets`，再盖上这里的布局、表情表和动画。
+- 换图、重新生成：见 [`scripts/anan_faces/README.md`](../../../../scripts/anan_faces/README.md)。
+- 烧录固件（首次整包烧录、日常更新）：见 [`docs/anan/flashing.md`](../../../../docs/anan/flashing.md)。
+
 **脖子工具**
 
 | 工具 | 作用 |
