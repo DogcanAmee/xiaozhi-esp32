@@ -3,10 +3,7 @@
 #include <esp_log.h>
 #include <esp_timer.h>
 
-#include <cstring>
-
 #include "application.h"
-#include "head_gestures.h"
 
 namespace anan {
 
@@ -37,15 +34,12 @@ bool SameLed(const LedCmd& a, const LedCmd& b) {
 }  // namespace
 
 BehaviorDirector::BehaviorDirector(ServoNeck* neck, LedRing* led)
-    : neck_(neck), led_(led), player_([this](Pose pose, uint32_t duration_ms) {
-          // Only called from the director task, inside ApplyOutputs / the loop.
-          if (HeadUsable()) {
-              neck_->StartMove(pose.yaw_deg, pose.pitch_deg, duration_ms);
-          }
-      }) {}
+    : head_(neck != nullptr ? std::optional<NeckHead>(std::in_place, neck) : std::nullopt),
+      led_(led),
+      logic_(head_ ? &*head_ : nullptr) {}
 
 void BehaviorDirector::Start() {
-    queue_ = xQueueCreate(kQueueLength, sizeof(Event));
+    queue_ = xQueueCreate(kQueueLength, sizeof(DirectorInput));
     if (queue_ == nullptr) {
         ESP_LOGE(TAG, "queue allocation failed; head and LED behavior are off");
         return;
@@ -64,38 +58,27 @@ void BehaviorDirector::NotifyEmotion(const char* emotion) {
     if (emotion == nullptr || queue_ == nullptr) {
         return;
     }
-    Event ev{};
-    ev.type = EventType::Emotion;
-    std::strncpy(ev.emotion, emotion, sizeof(ev.emotion) - 1);
-    ev.emotion[sizeof(ev.emotion) - 1] = '\0';
-    if (xQueueSend(queue_, &ev, 0) != pdTRUE) {
+    DirectorInput in = DirectorInput::Emotion(emotion);
+    if (xQueueSend(queue_, &in, 0) != pdTRUE) {
         // A dropped emotion costs at most one recolour or one automatic gesture.
-        ESP_LOGD(TAG, "queue full; emotion \"%s\" dropped", ev.emotion);
+        ESP_LOGD(TAG, "queue full; emotion \"%s\" dropped", in.emotion);
     }
 }
 
 void BehaviorDirector::RequestGesture(Gesture g, int count) {
-    Event ev{};
-    ev.type = EventType::Gesture;
-    ev.a = static_cast<int>(g);
-    ev.b = count;
-    Post(ev);
+    Post(DirectorInput::GestureRequest(g, count));
 }
 
 void BehaviorDirector::RequestManualMove(int yaw_deg, int pitch_deg) {
-    Event ev{};
-    ev.type = EventType::ManualMove;
-    ev.a = yaw_deg;
-    ev.b = pitch_deg;
-    Post(ev);
+    Post(DirectorInput::ManualMove(yaw_deg, pitch_deg));
 }
 
-void BehaviorDirector::Post(const Event& ev) {
+void BehaviorDirector::Post(const DirectorInput& in) {
     if (queue_ == nullptr) {
         ESP_LOGW(TAG, "not started; request dropped");
         return;
     }
-    if (xQueueSend(queue_, &ev, 0) != pdTRUE) {
+    if (xQueueSend(queue_, &in, 0) != pdTRUE) {
         ESP_LOGW(TAG, "queue full; request dropped");
     }
 }
@@ -103,67 +86,25 @@ void BehaviorDirector::Post(const Event& ev) {
 void BehaviorDirector::TaskEntry(void* self) { static_cast<BehaviorDirector*>(self)->Run(); }
 
 void BehaviorDirector::Run() {
+    // At most one queue's worth per iteration; anything left waits 20 ms.
+    DirectorInput inputs[kQueueLength];
     for (;;) {
         int64_t now = NowMs();
+        std::optional<Phase> phase;
         if (state_dirty_.exchange(false, std::memory_order_acq_rel)) {
-            core_.OnPhase(PhaseForState(Application::GetInstance().GetDeviceState()), now);
+            phase = PhaseForState(Application::GetInstance().GetDeviceState());
         }
-        Event ev;
-        while (xQueueReceive(queue_, &ev, 0) == pdTRUE) {
-            HandleEvent(ev, now);
+        size_t n = 0;
+        while (n < static_cast<size_t>(kQueueLength) &&
+               xQueueReceive(queue_, &inputs[n], 0) == pdTRUE) {
+            ++n;
         }
-        if (player_.Tick(now)) {
-            core_.OnGestureFinished(now);
-        }
-        ApplyOutputs(core_.Poll(now), now);
+        ApplyLevelsAndLed(logic_.Step(now, phase, std::span<const DirectorInput>(inputs, n)));
         vTaskDelay(pdMS_TO_TICKS(kLoopMs));
     }
 }
 
-void BehaviorDirector::HandleEvent(const Event& ev, int64_t now_ms) {
-    switch (ev.type) {
-        case EventType::Emotion:
-            core_.OnEmotion(ev.emotion, now_ms);
-            break;
-        case EventType::Gesture:
-            core_.OnGestureRequest(static_cast<Gesture>(ev.a), ev.b, now_ms);
-            break;
-        case EventType::ManualMove:
-            core_.OnManualMove(Pose{ev.a, ev.b}, now_ms);
-            break;
-    }
-}
-
-bool BehaviorDirector::HeadUsable() const { return neck_ != nullptr && neck_->torque_on(); }
-
-void BehaviorDirector::ApplyOutputs(const Outputs& out, int64_t now_ms) {
-    // Order matters: cancel, then move_to, then start_gesture (whose base is the move target).
-    if (out.cancel_gesture) {
-        player_.Cancel();
-        if (neck_ != nullptr) {
-            neck_->InvalidateRequests();
-        }
-    }
-    if (out.move_to && HeadUsable()) {
-        uint32_t ms = out.move_ms;
-        if (ms == 0) {
-            ms = core_.owner() == HeadOwner::Tracking ? kTrackingMoveMs : kManualMoveMs;
-        }
-        neck_->StartMove(out.move_to->yaw_deg, out.move_to->pitch_deg, ms);
-    }
-    if (out.start_gesture != Gesture::None) {
-        if (HeadUsable()) {
-            int yaw = 0, pitch = 0;
-            neck_->GetTarget(yaw, pitch);
-            player_.Start(BuildGesture(out.start_gesture, Pose{yaw, pitch}, out.gesture_count),
-                          now_ms);
-        } else {
-            // Nothing can play it; finish now so the core does not stay in Gesture.
-            player_.Cancel();
-            core_.OnGestureFinished(now_ms);
-        }
-    }
-
+void BehaviorDirector::ApplyLevelsAndLed(const Outputs& out) {
     tracking_enabled_.store(out.tracking_enabled, std::memory_order_relaxed);
     idle_actions_enabled_.store(out.idle_actions_enabled, std::memory_order_relaxed);
 

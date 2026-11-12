@@ -6,13 +6,14 @@
 
 #include <atomic>
 #include <cstdint>
+#include <optional>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
 #include "behavior_core.h"
-#include "gesture_player.h"
+#include "director_logic.h"
 #include "led_color.h"
 #include "led_ring.h"
 #include "servo_neck.h"
@@ -26,9 +27,6 @@ public:
     static constexpr uint32_t kTaskStack = 4096;
     static constexpr UBaseType_t kTaskPriority = 3;
     static constexpr uint32_t kLoopMs = 20;
-    // Outputs::move_ms == 0 means "the caller's default speed".
-    static constexpr uint32_t kManualMoveMs = 600;
-    static constexpr uint32_t kTrackingMoveMs = 250;
 
     // Either may be null: without a neck no head command is sent (the core still runs, so the
     // LED ring works); without a ring no LED command is sent.
@@ -55,25 +53,33 @@ public:
     }
 
 private:
-    enum class EventType : uint8_t { Emotion, Gesture, ManualMove };
-    // Plain data, copied into the queue: no allocation per event.
-    struct Event {
-        EventType type;
-        int a;  // gesture id / yaw
-        int b;  // gesture count / pitch
-        char emotion[24];
+    // ServoNeck as the director's HeadPort. Called only from the director task.
+    class NeckHead : public HeadPort {
+    public:
+        explicit NeckHead(ServoNeck* neck) : neck_(neck) {}
+        // A position write to a released servo would quietly take the head out of the user's
+        // hand, so a neck without torque counts as unusable.
+        bool Usable() const override { return neck_->torque_on(); }
+        void StageMove(Pose pose, uint32_t duration_ms) override {
+            neck_->StartMove(pose.yaw_deg, pose.pitch_deg, duration_ms);
+        }
+        void Invalidate() override { neck_->InvalidateRequests(); }
+        Pose Target() const override {
+            Pose p{0, 0};
+            neck_->GetTarget(p.yaw_deg, p.pitch_deg);
+            return p;
+        }
+
+    private:
+        ServoNeck* neck_;
     };
 
     static void TaskEntry(void* self);
     void Run();
-    void Post(const Event& ev);
-    void HandleEvent(const Event& ev, int64_t now_ms);
-    void ApplyOutputs(const Outputs& out, int64_t now_ms);
-    // True when head commands can do anything: a neck that is holding torque. A position write
-    // to a released servo would quietly take the head out of the user's hand.
-    bool HeadUsable() const;
+    void Post(const DirectorInput& in);
+    void ApplyLevelsAndLed(const Outputs& out);
 
-    ServoNeck* neck_;
+    std::optional<NeckHead> head_;  // empty when there is no neck
     LedRing* led_;
     QueueHandle_t queue_ = nullptr;
     std::atomic<bool> state_dirty_{true};  // read the device state once at start
@@ -81,8 +87,7 @@ private:
     std::atomic<bool> idle_actions_enabled_{false};
 
     // Everything below is touched only by the director task.
-    BehaviorCore core_;
-    GesturePlayer player_;
+    DirectorLogic logic_;
     bool led_sent_ = false;
     LedCmd last_led_{LedEffect::Off, {0, 0, 0}};
 };
