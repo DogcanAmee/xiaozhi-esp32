@@ -211,6 +211,11 @@ void Report(Display* display, const char* line) {
 }
 
 void Run(Ctx* ctx) {
+    // P4 spike: load on the first Listening so the load messages land in a serial capture
+    // that starts after the USB port re-enumerates.
+    while (Application::GetInstance().GetDeviceState() != kDeviceStateListening) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
     ESP_LOGI(TAG, "loading model; internal free %u KB, psram free %u KB",
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
@@ -231,6 +236,9 @@ void Run(Ctx* ctx) {
     float lp_yaw = 0, lp_pitch = 0;
     bool lp_valid = false;
     uint8_t* small = nullptr;
+    bool dumped = false;
+    int dump_countdown = 0;
+    int raw_results = 0;
     bool nudged = false;
     int64_t active_since_ms = 0;
     int probe_mode = 0;
@@ -253,6 +261,7 @@ void Run(Ctx* ctx) {
             active = true;
             window_start = now;
             frames = face_frames = faces = sends = 0;
+            raw_results = 0;
             infer_ms_sum = 0;
             lp_valid = false;
             last_face_ms = 0;
@@ -308,8 +317,42 @@ void Run(Ctx* ctx) {
                 packed422 = false;
             }
         }
+        if (packed422 && !dumped && ++dump_countdown >= 20) {
+            // P4 spike: dump one frame (sensor orientation, luma only, 160x120) as base64 so
+            // it can be looked at off the device.
+            dumped = true;
+            static const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            printf("\nIMGBEGIN %d %d\n", kSmallW, kSmallH);
+            char line[81];
+            int col = 0;
+            for (int i = 0; i < kSmallW * kSmallH; i += 3) {
+                // luma of 3 consecutive half-res pixels straight from the UYVY buffer
+                auto Y = [&](int k) -> uint32_t {
+                    int px = k % kSmallW, py = k / kSmallW;
+                    return buf[(static_cast<size_t>(py) * 2 * 320 + px * 2) * 2 + 1];
+                };
+                uint32_t v = (Y(i) << 16) | (Y(i + 1 < kSmallW * kSmallH ? i + 1 : i) << 8) |
+                             Y(i + 2 < kSmallW * kSmallH ? i + 2 : i);
+                line[col++] = b64[(v >> 18) & 63];
+                line[col++] = b64[(v >> 12) & 63];
+                line[col++] = b64[(v >> 6) & 63];
+                line[col++] = b64[v & 63];
+                if (col >= 76) {
+                    line[col] = 0;
+                    printf("%s\n", line);
+                    col = 0;
+                    vTaskDelay(1);
+                }
+            }
+            if (col > 0) {
+                line[col] = 0;
+                printf("%s\n", line);
+            }
+            printf("IMGEND\n");
+        }
         int64_t ti = NowMs();
         auto& results = detector->run(img);
+        raw_results += static_cast<int>(results.size());
         now = NowMs();
         infer_ms_sum += now - ti;
         ++frames;
@@ -404,8 +447,8 @@ void Run(Ctx* ctx) {
             float secs = (now - window_start) / 1000.0f;
             char line[128];
             snprintf(line, sizeof(line),
-                     "fps %.1f face %d/%d mv %d %s%s e%u o%u heap %u/%uK",
-                     frames / secs, face_frames, frames, sends,
+                     "fps %.1f face %d/%d raw %d mv %d %s%s e%u o%u heap %u/%uK",
+                     frames / secs, face_frames, frames, raw_results, sends,
                      kProbeModes[probe_mode].name, probe_locked ? "*" : "?",
                      (unsigned)mean_even, (unsigned)mean_odd,
                      (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
@@ -413,6 +456,7 @@ void Run(Ctx* ctx) {
             Report(ctx->display, line);
             window_start = now;
             frames = face_frames = faces = sends = 0;
+            raw_results = 0;
             infer_ms_sum = 0;
         }
         // Let IDLE1 run (task watchdog) and lower-priority work breathe.
