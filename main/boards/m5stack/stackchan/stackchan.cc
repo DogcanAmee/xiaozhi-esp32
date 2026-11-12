@@ -24,8 +24,11 @@
 #include "anan_display.h"
 #include "behavior_director.h"
 #include "led_ring.h"
+#include "tap_detector.h"
 
 #define TAG "StackChanBoard"
+
+#include "ft6336.h"  // after TAG: it logs through it
 
 class Pmic : public Axp2101 {
 public:
@@ -170,6 +173,12 @@ private:
     Display* display_;
     EspVideo* camera_;
     PowerSaveTimer* power_save_timer_;
+    // The touch panel. Null when the FT6336 did not answer; the board then boots without touch.
+    Ft6336* ft6336_ = nullptr;
+    esp_timer_handle_t touchpad_timer_ = nullptr;
+    // Only ever used from touchpad_timer_'s callback, which runs on the esp_timer task.
+    anan::TapDetector tap_detector_;
+    int64_t touch_read_warned_us_ = -1;
 
     void InitializePowerSaveTimer() {
         // 180 to dim, not 60. The face never stops animating - EmoteDisplay::SetPowerSaveMode is
@@ -262,6 +271,69 @@ private:
                 }
             }
             printf("\r\n");
+        }
+    }
+
+    // A short tap on the screen toggles the chat state: starts listening from idle, aborts
+    // speech and music while speaking (the wake word cannot be heard over the speaker), ends
+    // the conversation while listening. Runs on the esp_timer task, never in an ISR.
+    void PollTouchpad() {
+        bool touched = false;
+        if (ft6336_->TryUpdateTouchPoint()) {
+            touched = ft6336_->GetTouchPoint().num > 0;
+        } else {
+            // Treated as "not touched". The bus is shared with the LED ring and the PMIC, so
+            // a failure now and then is expected; say so at most once per 5 s.
+            int64_t now_us = esp_timer_get_time();
+            if (touch_read_warned_us_ < 0 || now_us - touch_read_warned_us_ >= 5000000) {
+                touch_read_warned_us_ = now_us;
+                ESP_LOGW(TAG, "FT6336 read failed; treating as not touched");
+            }
+        }
+
+        if (!tap_detector_.Update(touched, esp_timer_get_time() / 1000)) {
+            return;
+        }
+
+        // User activity, like every other input on this board: wakes a dimmed screen. Done
+        // before the toggle, so the first tap on a dimmed screen both wakes it and acts.
+        power_save_timer_->WakeUp();
+
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() == kDeviceStateStarting) {
+            EnterWifiConfigMode();
+            return;
+        }
+        app.ToggleChatState();
+    }
+
+    void InitializeFt6336TouchPad() {
+        // Probed first: the Ft6336 constructor reads the chip id and I2cDevice aborts the
+        // firmware on a failed read, which would turn a missing touch panel into a boot loop.
+        if (i2c_master_probe(i2c_bus_, 0x38, 100) != ESP_OK) {
+            ESP_LOGW(TAG, "FT6336 did not answer at 0x38; booting without touch");
+            return;
+        }
+        ESP_LOGI(TAG, "Init FT6336");
+        ft6336_ = new Ft6336(i2c_bus_, 0x38);
+
+        esp_timer_create_args_t timer_args = {
+            .callback = [](void* arg) {
+                static_cast<StackChanBoard*>(arg)->PollTouchpad();
+            },
+            .arg = this,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "touchpad_timer",
+            .skip_unhandled_events = true,
+        };
+        if (esp_timer_create(&timer_args, &touchpad_timer_) != ESP_OK ||
+            esp_timer_start_periodic(touchpad_timer_, 20 * 1000) != ESP_OK) {
+            ESP_LOGW(TAG, "touch polling timer failed to start; booting without touch");
+            if (touchpad_timer_ != nullptr) {
+                esp_timer_delete(touchpad_timer_);
+                touchpad_timer_ = nullptr;
+            }
+            // The Ft6336 is left allocated: its I2C device handle cannot be released here.
         }
     }
 
@@ -790,6 +862,7 @@ public:
         InitializePy32();
         InitializeServoNeck();
         InitializeBehavior();
+        InitializeFt6336TouchPad();
         GetBacklight()->RestoreBrightness();
     }
 

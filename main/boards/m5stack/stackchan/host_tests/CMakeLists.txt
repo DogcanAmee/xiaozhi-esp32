@@ -27,3 +27,4 @@ anan_add_host_test(test_gesture_player test_gesture_player.cc ../gesture_player.
 anan_add_host_test(test_director_logic test_director_logic.cc ../director_logic.cc ../idle_actions.cc ../rest_request.cc ../gesture_player.cc ../head_gestures.cc ../behavior_core.cc)
 anan_add_host_test(test_rest_request test_rest_request.cc ../rest_request.cc)
 anan_add_host_test(test_idle_actions test_idle_actions.cc ../idle_actions.cc)
+anan_add_host_test(test_tap_detector test_tap_detector.cc)
