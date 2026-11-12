@@ -23,6 +23,7 @@
 #include "servo_neck.h"
 #include "anan_display.h"
 #include "behavior_director.h"
+#include "face_tracker.h"
 #include "led_ring.h"
 #include "tap_detector.h"
 
@@ -171,7 +172,7 @@ private:
     // not an LcdDisplay. Only ever read through GetDisplay(), and nothing LcdDisplay-specific is
     // called on it.
     Display* display_;
-    EspVideo* camera_;
+    Camera* camera_ = nullptr;  // P4 spike: an EspVideo shared with the face tracker
     PowerSaveTimer* power_save_timer_;
     // The touch panel. Null when the FT6336 did not answer; the board then boots without touch.
     Ft6336* ft6336_ = nullptr;
@@ -846,7 +847,7 @@ private:
             .dvp = &dvp_config,
         };
 
-        camera_ = new EspVideo(video_config);
+        camera_ = anan::CreateTrackedCamera(video_config);
     }
 
 public:
@@ -862,6 +863,7 @@ public:
         InitializePy32();
         InitializeServoNeck();
         InitializeBehavior();
+        anan::StartFaceTracker(camera_, director_, display_);  // P4 spike
         InitializeFt6336TouchPad();
         GetBacklight()->RestoreBrightness();
     }

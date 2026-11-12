@@ -427,6 +427,29 @@ void non_neutral_face_cancels_playing_action_without_restore() {
     assert(seen.restore_times.empty());
 }
 
+// P4 spike: a face delta moves the head relative to its target while Listening, clamped, and
+// is ignored outside Listening.
+void face_delta_moves_relative_and_clamps() {
+    FakeHead head({40, 5});
+    DirectorLogic d(&head);
+    StepIn(d, 0, {}, Phase::Listening);
+    Run(d, 20, 200);  // settle Listening
+    assert(d.core().owner() == HeadOwner::Tracking);
+    size_t before = head.moves.size();
+    StepIn(d, 220, {DirectorInput::FaceDelta(10, -3)});
+    assert(head.moves.size() == before + 1);
+    assert(Same(head.moves.back().pose, {kYawMax, kPitchMin}));
+    assert(head.moves.back().duration_ms == DirectorLogic::kTrackingMoveMs);
+    StepIn(d, 240, {DirectorInput::FaceDelta(-5, 7)});
+    assert(Same(head.moves.back().pose, {kYawMax - 5, kPitchMin + 7}));
+
+    StepIn(d, 260, {}, Phase::Speaking);
+    Run(d, 280, 500);
+    before = head.moves.size();
+    StepIn(d, 520, {DirectorInput::FaceDelta(-5, 0)});
+    assert(head.moves.size() == before);
+}
+
 }  // namespace
 
 int main() {
@@ -449,6 +472,7 @@ int main() {
     non_neutral_face_in_idle_blocks_idle_actions();
     no_idle_actions_before_first_neutral();
     non_neutral_face_cancels_playing_action_without_restore();
+    face_delta_moves_relative_and_clamps();
     std::puts("test_director_logic: all passed");
     return 0;
 }

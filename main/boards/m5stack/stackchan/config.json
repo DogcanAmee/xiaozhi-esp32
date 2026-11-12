@@ -18,7 +18,9 @@
                 "CONFIG_FLASH_EXPRESSION_ASSETS=y",
                 "CONFIG_USE_HOTSPOT_WIFI_PROVISIONING=y",
                 "CONFIG_MMAP_FILE_NAME_LENGTH=32",
-                "CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y"
+                "CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y",
+                "CONFIG_HUMAN_FACE_DETECT_MODEL_IN_FLASH_RODATA=y",
+                "CONFIG_FLASH_HUMAN_FACE_DETECT_MSRMNP_S8_V1=y"
             ]
         }
     ]

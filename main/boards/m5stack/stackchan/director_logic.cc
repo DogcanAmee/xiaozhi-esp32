@@ -26,6 +26,14 @@ DirectorInput DirectorInput::GestureRequest(Gesture g, int count) {
     return in;
 }
 
+DirectorInput DirectorInput::FaceDelta(int dyaw_deg, int dpitch_deg) {
+    DirectorInput in{};
+    in.type = Type::FaceDelta;
+    in.a = dyaw_deg;
+    in.b = dpitch_deg;
+    return in;
+}
+
 DirectorInput DirectorInput::ManualMove(int yaw_deg, int pitch_deg) {
     DirectorInput in{};
     in.type = Type::ManualMove;
@@ -101,6 +109,14 @@ void DirectorLogic::Feed(const DirectorInput& in, int64_t now_ms) {
         case DirectorInput::Type::EndConversation:
             rest_.Request(now_ms);
             break;
+        case DirectorInput::Type::FaceDelta: {
+            // Relative to the last commanded target (clamped there), so no wind-up past the
+            // limits. Ignored by the core unless the tracker owns the head.
+            Pose base = head_ != nullptr ? head_->Target() : kRestPose;
+            core_.OnFaceTarget(ClampPose(Pose{base.yaw_deg + in.a, base.pitch_deg + in.b}),
+                               now_ms);
+            break;
+        }
     }
 }
 

@@ -60,6 +60,12 @@ dependencies:
     - if: target == esp32c5 && $CONFIG{BOARD_TYPE_WAVESHARE_ESP32_C5_TOUCH_LCD_3_5} == True
       version: ^2.5.0
 
+  # anan P4 spike: esp-dl face detection, Stack-chan only.
+  espressif/human_face_detect:
+    version: "~0.5.2"
+    rules:
+    - if: $CONFIG{BOARD_TYPE_STACKCHAN} == True
+
   espressif/esp_image_effects:
     version: ^1.1.0
     rules:

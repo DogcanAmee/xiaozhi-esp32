@@ -32,7 +32,7 @@ public:
 
 // Plain data so it can be copied into a FreeRTOS queue.
 struct DirectorInput {
-    enum class Type : uint8_t { Emotion, Gesture, ManualMove, EndConversation };
+    enum class Type : uint8_t { Emotion, Gesture, ManualMove, EndConversation, FaceDelta };
     Type type;
     int a;  // gesture id / yaw
     int b;  // gesture count / pitch
@@ -42,6 +42,8 @@ struct DirectorInput {
     static DirectorInput GestureRequest(Gesture g, int count);
     static DirectorInput ManualMove(int yaw_deg, int pitch_deg);
     static DirectorInput EndConversation();  // self.conversation.end
+    // P4 spike: turn the head by (dyaw, dpitch) from its current target while tracking.
+    static DirectorInput FaceDelta(int dyaw_deg, int dpitch_deg);
 };
 
 // Not thread-safe: drive it from a single task.

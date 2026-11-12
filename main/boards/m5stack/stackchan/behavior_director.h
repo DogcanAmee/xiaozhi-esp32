@@ -55,6 +55,13 @@ public:
     // For self.conversation.end. Once the goodbye has been spoken (see RestRequest), the
     // director asks the main task to close the conversation if the device is still Listening.
     bool RequestEndConversation();
+    // P4 spike: face tracker output. Dropped silently if the queue is full.
+    void RequestFaceDelta(int dyaw_deg, int dpitch_deg) {
+        if (queue_ != nullptr) {
+            DirectorInput in = DirectorInput::FaceDelta(dyaw_deg, dpitch_deg);
+            xQueueSend(queue_, &in, 0);
+        }
+    }
 
     // Latest level outputs, for later phases (P4 face tracking, P5 idle actions).
     bool tracking_enabled() const { return tracking_enabled_.load(std::memory_order_relaxed); }
