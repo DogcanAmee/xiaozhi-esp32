@@ -29,12 +29,25 @@ jobs:
       - name: Install Pillow
         shell: bash
         run: |
-          python3 -m pip install --user pillow \
-            || python3 -m pip install --user --break-system-packages pillow
+          python3 -m pip install --user Pillow==12.3.0 \
+            || python3 -m pip install --user --break-system-packages Pillow==12.3.0
 
       - name: Run face script tests
         shell: bash
         run: python3 -m unittest discover -s scripts/anan_faces/tests -v
+
+      - name: Check committed face animations are up to date
+        shell: bash
+        run: |
+          B=main/boards/m5stack/stackchan
+          python3 scripts/anan_faces/build_faces.py build "$B/assets-src/anan" "$B"
+          git diff --exit-code -- "$B/emoji" "$B/assets/320_240/emote.json" "$B/anan_idle_actions.inc"
+          untracked=$(git ls-files --others --exclude-standard -- "$B/emoji")
+          if [[ -n "$untracked" ]]; then
+            echo "Generated face files are not committed:"
+            echo "$untracked"
+            exit 1
+          fi
 
       - name: Run host tests (skipped until the suite exists)
         shell: bash

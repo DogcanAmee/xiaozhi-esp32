@@ -3,7 +3,8 @@
 把安安的表情图转成 StackChan 板子能播的 `.eaf` 动画（320×240、8 位调色板、RLE、5 fps），
 同时生成 `emote.json` 和待机小动作列表。生成物提交进仓库，编译固件不需要 Pillow。
 
-只依赖 Python 3 和 Pillow（`pip install pillow`）。
+只依赖 Python 3 和 Pillow，版本固定为 12.3.0（`pip install Pillow==12.3.0`）。
+不同 Pillow 版本量化出的调色板可能不同，CI 会重新生成 `.eaf` 并与提交的文件逐字节比对，所以本地和 CI 都要用这个版本。
 
 ## 文件
 

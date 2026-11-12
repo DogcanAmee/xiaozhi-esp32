@@ -314,6 +314,15 @@ def build(src_dir, board_dir):
     return sizes
 
 
+def check_board_dir(board_dir):
+    """The command line refuses anything that is not the StackChan board dir."""
+    if not os.path.isdir(board_dir):
+        raise FaceError("board dir %s does not exist; expected main/boards/m5stack/stackchan" % board_dir)
+    if not os.path.isfile(os.path.join(board_dir, "stackchan.cc")):
+        raise FaceError("%s is not the StackChan board dir (no stackchan.cc); "
+                        "expected main/boards/m5stack/stackchan" % board_dir)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -329,6 +338,7 @@ def main(argv=None):
             prepare(args.originals, args.assets_src)
             print("prepared %d faces into %s" % (len(FACE_NAMES), args.assets_src))
         else:
+            check_board_dir(args.board_dir)
             sizes = build(args.assets_src, args.board_dir)
             for name in sorted(sizes):
                 print("%-28s %9d bytes" % (name, sizes[name]))

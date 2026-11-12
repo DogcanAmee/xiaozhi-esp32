@@ -245,3 +245,36 @@ class RealOriginalsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmoteJsonSourcesTest(unittest.TestCase):
+    """Every src in the committed emote.json must be a shipped animation."""
+
+    def test_every_src_exists(self):
+        board = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..",
+                             "main", "boards", "m5stack", "stackchan")
+        with open(os.path.join(board, "assets", "320_240", "emote.json"), encoding="utf-8") as f:
+            entries = json.load(f)
+        self.assertTrue(entries)
+        # The stock set only exists when the esp_emote_assets component is available.
+        stock = os.environ.get("ANAN_STOCK_EAF_DIR", "")
+        missing = []
+        for entry in entries:
+            src = entry["src"]
+            if os.path.isfile(os.path.join(board, "emoji", src)):
+                continue
+            if stock and os.path.isfile(os.path.join(stock, src)):
+                continue
+            missing.append(src)
+        self.assertEqual(missing, [])
+
+
+class BoardDirGuardTest(unittest.TestCase):
+    def test_missing_board_dir_is_a_clean_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code = build_faces.main(["build", tmp, os.path.join(tmp, "nope")])
+        self.assertEqual(code, 1)
+
+    def test_wrong_board_dir_is_a_clean_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(build_faces.main(["build", tmp, tmp]), 1)
