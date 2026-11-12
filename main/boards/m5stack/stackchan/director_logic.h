@@ -72,6 +72,8 @@ private:
     GesturePlayer player_;
     // Base pose of the gesture the player is playing; set while it plays.
     std::optional<Pose> gesture_base_;
+    // HeadUsable() at the previous Step; empty before the first.
+    std::optional<bool> head_was_usable_;
 };
 
 }  // namespace anan

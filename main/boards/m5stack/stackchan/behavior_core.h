@@ -25,6 +25,11 @@ inline constexpr int64_t kAutoGestureGapMs = 4000;
 inline constexpr int64_t kPhaseSettleMs = 150;  // a phase must be stable this long to take effect
 inline constexpr int64_t kManualHoldMs = 8000;  // how long a manual head turn owns the head
 inline constexpr uint32_t kReturnToRestMs = 1500;
+// An emotion this recent when Speaking takes effect is applied as if it arrived then (the
+// server sends the emotion just before it starts speaking).
+inline constexpr int64_t kEmotionCarryMs = 2000;
+// A tool gesture request this soon after the previous accepted one is ignored.
+inline constexpr int64_t kToolGestureGapMs = 1000;
 
 Pose ClampPose(Pose p);
 Gesture GestureForEmotion(std::string_view emotion);  // unknown -> None
@@ -52,13 +57,17 @@ public:
     void OnGestureRequest(Gesture g, int count, int64_t now_ms);  // from tools, not throttled
     void OnFaceTarget(Pose target, int64_t now_ms);
     void OnGestureFinished(int64_t now_ms);
+    // The head can move again (e.g. torque back on). In Idle with no manual hold, re-arm the
+    // one-shot return-to-rest; otherwise nothing.
+    void OnHeadAvailable(int64_t now_ms);
     Outputs Poll(int64_t now_ms);  // call every 20 ms; returns commands since the last call
     HeadOwner owner() const;
     Phase phase() const;
 
 private:
     void Advance(int64_t now_ms);  // expire manual hold, settle pending phase
-    void EnterPhase(Phase next);
+    void EnterPhase(Phase next, int64_t now_ms);
+    void ApplyEmotion(std::string_view emotion, int64_t now_ms);  // only while Speaking
 
     Phase phase_ = Phase::Other;
     std::optional<Phase> pending_phase_;
@@ -68,7 +77,11 @@ private:
     int64_t manual_until_ms_ = 0;
     bool gesture_active_ = false;
     std::optional<int64_t> last_auto_gesture_ms_;
+    std::optional<int64_t> last_tool_gesture_ms_;
     std::string led_emotion_;
+    // The last emotion that arrived outside Speaking, for kEmotionCarryMs.
+    std::optional<std::string> carried_emotion_;
+    int64_t carried_emotion_ms_ = 0;
 
     // One-shot commands waiting for the next Poll().
     std::optional<Pose> pending_move_;

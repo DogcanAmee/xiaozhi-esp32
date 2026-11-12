@@ -58,29 +58,30 @@ void Run(DirectorLogic& d, int64_t from, int64_t to) {
 void request_in_same_iteration_as_old_finish() {
     FakeHead head({0, 5});
     DirectorLogic d(&head);
-    StepIn(d, 0, {DirectorInput::GestureRequest(Gesture::Nod, 1)});
+    // Three nods (6 keyframes x 220 ms), so the old gesture ends after the tool-gesture gap.
+    StepIn(d, 0, {DirectorInput::GestureRequest(Gesture::Nod, 3)});
     assert(d.gesture_playing());
     assert(head.moves.size() == 1);  // nod keyframe 0 (220 ms)
-    // Nod: keyframe 1 staged on the tick at 220, last keyframe's time is up at 440.
-    Run(d, 20, 420);
+    // Keyframe i is staged on the tick at 220 * i; the last keyframe's time is up at 1320.
+    Run(d, 20, 1300);
     assert(d.gesture_playing());
-    assert(head.moves.size() == 2);
+    assert(head.moves.size() == 6);
 
-    StepIn(d, 440, {DirectorInput::GestureRequest(Gesture::Shake, 1)});
+    StepIn(d, 1320, {DirectorInput::GestureRequest(Gesture::Shake, 1)});
     assert(d.core().owner() == HeadOwner::Gesture);
     assert(d.gesture_playing());
-    assert(head.moves.size() == 3);
-    assert(Same(head.moves[2].pose, {-12, 5}));  // shake's first keyframe, from base (0, 5)
+    assert(head.moves.size() == 7);
+    assert(Same(head.moves[6].pose, {-12, 5}));  // shake's first keyframe, from base (0, 5)
 
     const int invalidates_before = head.invalidates;
-    StepIn(d, 460, {DirectorInput::ManualMove(30, 40)});
+    StepIn(d, 1340, {DirectorInput::ManualMove(30, 40)});
     assert(head.invalidates == invalidates_before + 1);
     assert(!d.gesture_playing());
     assert(d.core().owner() == HeadOwner::Manual);
     const size_t after_manual = head.moves.size();
     assert(Same(head.moves.back().pose, {30, 40}));
     assert(head.moves.back().duration_ms == DirectorLogic::kManualMoveMs);
-    Run(d, 480, 3000);
+    Run(d, 1360, 4000);
     assert(head.moves.size() == after_manual);  // no stale shake keyframes over the target
 }
 
@@ -89,16 +90,20 @@ void request_in_same_iteration_as_old_finish() {
 void replacement_mid_keyframe_ends_at_original_base() {
     FakeHead head({0, 5});
     DirectorLogic d(&head);
-    StepIn(d, 0, {DirectorInput::GestureRequest(Gesture::Nod, 1)});
-    assert(Same(head.Target(), {0, 15}));  // mid nod keyframe 0
-    StepIn(d, 100, {DirectorInput::GestureRequest(Gesture::Shake, 1)});
+    // Three nods; at 1000 keyframe 4 (0, 15), staged at 880, is in flight. The replacement
+    // comes after the tool-gesture gap.
+    StepIn(d, 0, {DirectorInput::GestureRequest(Gesture::Nod, 3)});
+    Run(d, 20, 980);
+    assert(Same(head.Target(), {0, 15}));
+    const size_t before_shake = head.moves.size();
+    StepIn(d, 1000, {DirectorInput::GestureRequest(Gesture::Shake, 1)});
     assert(head.invalidates == 1);
     assert(d.gesture_playing());
-    Run(d, 120, 3000);
+    Run(d, 1020, 4000);
     assert(!d.gesture_playing());
     assert(Same(head.moves.back().pose, {0, 5}));
     // Every shake keyframe is at the base pitch.
-    for (size_t i = 1; i < head.moves.size(); ++i) {
+    for (size_t i = before_shake; i < head.moves.size(); ++i) {
         assert(head.moves[i].pose.pitch_deg == 5);
     }
 }
@@ -169,6 +174,34 @@ void finished_gesture_releases_head() {
     assert(head.invalidates == 0);
 }
 
+// Torque released while Idle settles: the one-shot return-to-rest is consumed with nothing to
+// move. When the head is usable again, the rest move is re-issued exactly once.
+void head_usable_again_in_idle_returns_to_rest_once() {
+    FakeHead head({20, 30});
+    head.usable = false;
+    DirectorLogic d(&head);
+    StepIn(d, 0, {}, Phase::Idle);
+    Run(d, 20, 1000);
+    assert(d.core().phase() == Phase::Idle);
+    assert(head.moves.empty());
+    head.usable = true;
+    Run(d, 1020, 4000);
+    assert(head.moves.size() == 1);
+    assert(Same(head.moves[0].pose, kRestPose));
+    assert(head.moves[0].duration_ms == kReturnToRestMs);
+}
+
+void head_usable_again_while_speaking_does_not_move() {
+    FakeHead head({20, 30});
+    head.usable = false;
+    DirectorLogic d(&head);
+    StepIn(d, 0, {}, Phase::Speaking);
+    Run(d, 20, 1000);
+    head.usable = true;
+    Run(d, 1020, 4000);
+    assert(head.moves.empty());
+}
+
 }  // namespace
 
 int main() {
@@ -178,6 +211,8 @@ int main() {
     cancel_with_manual_move_ends_at_manual_target();
     unusable_head_finishes_gesture_at_once();
     finished_gesture_releases_head();
+    head_usable_again_in_idle_returns_to_rest_once();
+    head_usable_again_while_speaking_does_not_move();
     std::puts("test_director_logic: all passed");
     return 0;
 }

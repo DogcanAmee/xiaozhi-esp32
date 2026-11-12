@@ -50,6 +50,13 @@ Outputs DirectorLogic::Step(int64_t now_ms, std::optional<Phase> phase,
         gesture_base_.reset();
         core_.OnGestureFinished(now_ms);
     }
+    // Torque back on: the core's one-shot return-to-rest may have been spent while the head
+    // could not move, so let it re-arm.
+    const bool usable = HeadUsable();
+    if (head_was_usable_ && !*head_was_usable_ && usable) {
+        core_.OnHeadAvailable(now_ms);
+    }
+    head_was_usable_ = usable;
     if (phase) {
         core_.OnPhase(*phase, now_ms);
     }

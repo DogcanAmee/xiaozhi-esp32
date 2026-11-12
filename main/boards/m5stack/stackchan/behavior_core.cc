@@ -1,6 +1,7 @@
 #include "behavior_core.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace anan {
 
@@ -24,11 +25,20 @@ Gesture GestureForEmotion(std::string_view emotion) {
     return Gesture::None;
 }
 
-void BehaviorCore::EnterPhase(Phase next) {
+void BehaviorCore::EnterPhase(Phase next, int64_t now_ms) {
     const Phase prev = phase_;
     phase_ = next;
     if (prev == Phase::Speaking) {
         led_emotion_.clear();
+        carried_emotion_.reset();
+    }
+    if (next == Phase::Speaking && carried_emotion_) {
+        const std::string emotion = std::move(*carried_emotion_);
+        const bool fresh = now_ms - carried_emotion_ms_ <= kEmotionCarryMs;
+        carried_emotion_.reset();
+        if (fresh) {
+            ApplyEmotion(emotion, now_ms);
+        }
     }
     if (next == Phase::Idle) {
         if (gesture_active_) {
@@ -50,7 +60,7 @@ void BehaviorCore::Advance(int64_t now_ms) {
     if (pending_phase_ && now_ms - pending_since_ms_ >= kPhaseSettleMs) {
         const Phase next = *pending_phase_;
         pending_phase_.reset();
-        EnterPhase(next);
+        EnterPhase(next, now_ms);
     }
 }
 
@@ -67,8 +77,15 @@ void BehaviorCore::OnPhase(Phase phase, int64_t now_ms) {
 void BehaviorCore::OnEmotion(std::string_view emotion, int64_t now_ms) {
     Advance(now_ms);
     if (phase_ != Phase::Speaking) {
+        // Usually Speaking is a few ms (or a pending settle) away: keep it for then.
+        carried_emotion_ = std::string(emotion);
+        carried_emotion_ms_ = now_ms;
         return;
     }
+    ApplyEmotion(emotion, now_ms);
+}
+
+void BehaviorCore::ApplyEmotion(std::string_view emotion, int64_t now_ms) {
     led_emotion_ = std::string(emotion);
     const Gesture g = GestureForEmotion(emotion);
     if (g == Gesture::None || manual_active_ || gesture_active_) {
@@ -104,6 +121,11 @@ void BehaviorCore::OnGestureRequest(Gesture g, int count, int64_t now_ms) {
     if (g == Gesture::None) {
         return;
     }
+    // Rate limit: a caller cannot keep the neck in continuous motion.
+    if (last_tool_gesture_ms_ && now_ms - *last_tool_gesture_ms_ < kToolGestureGapMs) {
+        return;
+    }
+    last_tool_gesture_ms_ = now_ms;
     if (gesture_active_) {
         pending_cancel_ = true;
     }
@@ -120,6 +142,14 @@ void BehaviorCore::OnFaceTarget(Pose target, int64_t now_ms) {
 void BehaviorCore::OnGestureFinished(int64_t now_ms) {
     Advance(now_ms);
     gesture_active_ = false;
+}
+
+void BehaviorCore::OnHeadAvailable(int64_t now_ms) {
+    Advance(now_ms);
+    // The one-shot return-to-rest may have been emitted while nothing could move the head.
+    if (phase_ == Phase::Idle && !manual_active_) {
+        pending_rest_ = true;
+    }
 }
 
 HeadOwner BehaviorCore::owner() const {

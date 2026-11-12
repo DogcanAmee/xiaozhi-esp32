@@ -142,14 +142,14 @@ void tool_gesture_ignores_throttle() {
     assert(o.start_gesture == Gesture::Shake);
     assert(o.gesture_count == 3);
     assert(!o.cancel_gesture);
-    // a tool request replaces a running gesture
-    c.OnGestureRequest(Gesture::Tilt, 1, 700);
-    o = c.Poll(700);
+    // a tool request replaces a running gesture (at least kToolGestureGapMs after the last one)
+    c.OnGestureRequest(Gesture::Tilt, 1, 600 + kToolGestureGapMs);
+    o = c.Poll(600 + kToolGestureGapMs);
     assert(o.cancel_gesture);
     assert(o.start_gesture == Gesture::Tilt);
     // None is ignored
-    c.OnGestureRequest(Gesture::None, 1, 800);
-    assert(Silent(c.Poll(800)));
+    c.OnGestureRequest(Gesture::None, 1, 1700);
+    assert(Silent(c.Poll(1700)));
     assert(c.owner() == HeadOwner::Gesture);
 }
 
@@ -306,6 +306,144 @@ void auto_gesture_not_emitted_while_gesture_active() {
     assert(c.Poll(5000).start_gesture == Gesture::None);
 }
 
+// ---- emotion carried into Speaking (the server sends the emotion just before tts start) ----
+
+void emotion_just_before_speaking_is_applied_on_settle() {
+    BehaviorCore c;
+    SetPhase(c, Phase::Listening, -1000);
+    c.OnEmotion("happy", 0);
+    assert(c.Poll(0).start_gesture == Gesture::None);
+    c.OnPhase(Phase::Speaking, 50);
+    Outputs before = c.Poll(100);  // not settled
+    assert(before.start_gesture == Gesture::None);
+    assert(before.led_emotion.empty());
+    Outputs o = c.Poll(200);  // settled
+    assert(o.start_gesture == Gesture::Nod);
+    assert(o.led_emotion == "happy");
+    assert(c.owner() == HeadOwner::Gesture);
+    // exactly once
+    for (int64_t t = 220; t <= 3000; t += 20) {
+        assert(c.Poll(t).start_gesture == Gesture::None);
+    }
+    c.OnGestureFinished(3000);
+    for (int64_t t = 3020; t <= 6000; t += 20) {
+        Outputs later = c.Poll(t);
+        assert(later.start_gesture == Gesture::None);
+        assert(later.led_emotion == "happy");
+    }
+}
+
+void emotion_while_speaking_pending_is_applied_on_settle() {
+    BehaviorCore c;
+    SetPhase(c, Phase::Listening, -1000);
+    c.OnPhase(Phase::Speaking, 0);
+    c.OnEmotion("sad", 50);  // Speaking requested, not yet effective
+    assert(c.Poll(100).start_gesture == Gesture::None);
+    Outputs o = c.Poll(150);
+    assert(o.start_gesture == Gesture::Bow);
+    assert(o.led_emotion == "sad");
+    assert(c.Poll(170).start_gesture == Gesture::None);
+}
+
+void stale_emotion_is_not_carried() {
+    BehaviorCore c;
+    SetPhase(c, Phase::Listening, -1000);
+    c.OnEmotion("happy", 0);
+    c.OnPhase(Phase::Speaking, 2500 - kPhaseSettleMs);
+    Outputs o = c.Poll(2500);  // settles 2500 ms after the emotion
+    assert(c.phase() == Phase::Speaking);
+    assert(o.start_gesture == Gesture::None);
+    assert(o.led_emotion.empty());
+}
+
+void carried_emotion_is_not_applied_twice() {
+    BehaviorCore c;
+    SetPhase(c, Phase::Listening, -1000);
+    c.OnEmotion("happy", 0);
+    c.OnPhase(Phase::Speaking, 10);
+    assert(c.Poll(200).start_gesture == Gesture::Nod);
+    c.OnGestureFinished(600);
+    // Leave Speaking and come back within kEmotionCarryMs: nothing is replayed.
+    c.OnPhase(Phase::Listening, 700);
+    Outputs l = c.Poll(900);
+    assert(l.led_emotion.empty());
+    c.OnPhase(Phase::Speaking, 1000);
+    Outputs o = c.Poll(1200);
+    assert(c.phase() == Phase::Speaking);
+    assert(o.start_gesture == Gesture::None);
+    assert(o.led_emotion.empty());
+}
+
+void carried_emotion_respects_auto_throttle() {
+    BehaviorCore c;
+    SetPhase(c, Phase::Speaking, -150);
+    c.OnEmotion("happy", 0);
+    assert(c.Poll(0).start_gesture == Gesture::Nod);
+    c.OnGestureFinished(500);
+    c.OnPhase(Phase::Listening, 1000);
+    c.Poll(1200);
+    c.OnEmotion("happy", 2000);
+    c.OnPhase(Phase::Speaking, 2050);
+    Outputs o = c.Poll(2300);  // settled at 2300 < 4000 ms after the last auto gesture
+    assert(o.start_gesture == Gesture::None);
+    assert(o.led_emotion == "happy");
+}
+
+// ---- tool gesture rate limit ----
+
+void tool_gestures_closer_than_gap_are_ignored() {
+    BehaviorCore c;
+    SetPhase(c, Phase::Speaking, -150);
+    c.OnGestureRequest(Gesture::Nod, 1, 0);
+    assert(c.Poll(0).start_gesture == Gesture::Nod);
+    c.OnGestureRequest(Gesture::Shake, 1, 500);
+    Outputs o = c.Poll(500);
+    assert(o.start_gesture == Gesture::None);
+    assert(!o.cancel_gesture);
+    assert(c.owner() == HeadOwner::Gesture);
+}
+
+void tool_gestures_at_gap_both_start() {
+    BehaviorCore c;
+    SetPhase(c, Phase::Speaking, -150);
+    c.OnGestureRequest(Gesture::Nod, 1, 0);
+    assert(c.Poll(0).start_gesture == Gesture::Nod);
+    c.OnGestureRequest(Gesture::Shake, 1, kToolGestureGapMs);
+    Outputs o = c.Poll(kToolGestureGapMs);
+    assert(o.start_gesture == Gesture::Shake);
+    assert(o.cancel_gesture);
+}
+
+// ---- head becomes available again (torque back on) ----
+
+void head_available_in_idle_rearms_rest_once() {
+    BehaviorCore c;
+    SetPhase(c, Phase::Idle, 0);  // the one-shot rest was consumed (e.g. while torque was off)
+    assert(Silent(c.Poll(200)));
+    c.OnHeadAvailable(1000);
+    Outputs o = c.Poll(1000);
+    assert(Is(o.move_to, kRestPose));
+    assert(o.move_ms == kReturnToRestMs);
+    for (int64_t t = 1020; t <= 3000; t += 20) {
+        assert(Silent(c.Poll(t)));
+    }
+}
+
+void head_available_outside_idle_or_in_hold_is_noop() {
+    BehaviorCore c;
+    SetPhase(c, Phase::Speaking, 0);
+    c.OnHeadAvailable(500);
+    assert(Silent(c.Poll(500)));
+
+    BehaviorCore d;
+    SetPhase(d, Phase::Idle, 0);
+    d.Poll(200);
+    d.OnManualMove({20, 20}, 300);
+    d.Poll(300);
+    d.OnHeadAvailable(500);
+    assert(Silent(d.Poll(500)));
+}
+
 }  // namespace
 
 int main() {
@@ -328,6 +466,15 @@ int main() {
     led_phase_and_emotion_follow_inputs();
     tool_gesture_allowed_during_manual_hold();
     auto_gesture_not_emitted_while_gesture_active();
+    emotion_just_before_speaking_is_applied_on_settle();
+    emotion_while_speaking_pending_is_applied_on_settle();
+    stale_emotion_is_not_carried();
+    carried_emotion_is_not_applied_twice();
+    carried_emotion_respects_auto_throttle();
+    tool_gestures_closer_than_gap_are_ignored();
+    tool_gestures_at_gap_both_start();
+    head_available_in_idle_rearms_rest_once();
+    head_available_outside_idle_or_in_hold_is_noop();
     std::puts("test_behavior_core: all passed");
     return 0;
 }
