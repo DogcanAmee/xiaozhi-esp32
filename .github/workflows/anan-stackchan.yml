@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   host-tests:
     name: Host tests
@@ -19,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Run host tests (skipped until the suite exists)
         shell: bash
@@ -40,6 +46,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Build firmware
         shell: bash
@@ -52,7 +60,7 @@ jobs:
         shell: bash
         run: |
           echo "=== wake-word related sdkconfig lines ==="
-          grep -E "WAKE_WORD|SR_WN|SR_MN|USE_DEVICE_AEC" sdkconfig || true
+          grep -E "WAKE_WORD|SR_WN|SR_MN|USE_DEVICE_AEC|LANGUAGE" sdkconfig || true
 
       - name: Upload firmware
         uses: actions/upload-artifact@v7

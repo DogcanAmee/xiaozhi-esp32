@@ -3,7 +3,6 @@
 - 版本：v0.2 · 2026-11-12 · 状态：等用户审阅，未写代码
 - 基线：`78/xiaozhi-esp32` main（读取于 2026-11-12，commit `026e9b6`），板子 `main/boards/m5stack/stackchan`
 - 参考：`DogcanAmee/stackchan-xiaozhi-firmware`（旧 fork，只读参考，不再在上面开发）
-- 架构页：https://claude.ai/artifact/MX42oMSSFW3WD1tzeoM7Vm
 
 ## 1. 目标
 
