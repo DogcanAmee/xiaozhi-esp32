@@ -81,9 +81,16 @@ bool ServoNeck::SetTorque(bool on) {
     if (!ready_) {
         return false;
     }
-    if (!on) {
-        // Anything in flight would fight the release.
-        InvalidateRequests();
+    // Anything in flight would fight the release - and on re-enable, would resume from the
+    // pose stored before the head was let go.
+    InvalidateRequests();
+    if (on) {
+        // While released, the head may have been posed by hand. Read where it actually is and
+        // make that both the servo's goal and our current/target, before torque comes on, so
+        // enabling torque does not drive back to the old set-point and the next move starts
+        // from the real pose. Same read-and-hold as the boot path.
+        HoldCurrent(SERVO_PITCH_ID, pitch_, &ServoNeck::PitchDegToPos, true);
+        HoldCurrent(SERVO_YAW_ID, yaw_, &ServoNeck::YawDegToPos, false);
     }
     xSemaphoreTake(bus_mutex_, portMAX_DELAY);
     // EnableTorque takes uint8_t, not bool - made explicit rather than left to an
@@ -213,8 +220,11 @@ void ServoNeck::HoldCurrent(uint8_t id, Axis& axis, int (*to_pos)(int), bool cla
     // time=0: hold it exactly here, right now.
     bus_.WritePos(id, to_pos(deg), 0, 0);
     xSemaphoreGive(bus_mutex_);
+    // Under the request mutex: after boot the motion task and GetTarget read these.
+    xSemaphoreTake(motion_mutex_, portMAX_DELAY);
     axis.current_deg = deg;
     axis.target_deg = deg;
     axis.moving = false;
+    xSemaphoreGive(motion_mutex_);
     ESP_LOGI(TAG_NECK, "servo %u held at raw %d (%d deg)", id, pos, deg);
 }
