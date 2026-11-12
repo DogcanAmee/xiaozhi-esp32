@@ -1359,6 +1359,10 @@ if(CONFIG_BOARD_TYPE_STACKCHAN)
         file(COPY "${STACKCHAN_ASSETS_SRC}/assets/320_240/layout.json" DESTINATION "${STACKCHAN_ASSETS_STAGING}/320_240")
         file(COPY "${STACKCHAN_ASSETS_SRC}/assets/320_240/emote.json" DESTINATION "${STACKCHAN_ASSETS_STAGING}/320_240")
         file(GLOB STACKCHAN_FACE_FILES CONFIGURE_DEPENDS "${STACKCHAN_ASSETS_SRC}/emoji/*.eaf")
+        if(NOT STACKCHAN_FACE_FILES)
+            message(FATAL_ERROR "No face animations found in ${STACKCHAN_ASSETS_SRC}/emoji (*.eaf); "
+                                "run scripts/anan_faces/build_faces.py build to generate them")
+        endif()
         file(COPY ${STACKCHAN_FACE_FILES} DESTINATION "${STACKCHAN_ASSETS_STAGING}/emoji_large")
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
             "${STACKCHAN_ASSETS_SRC}/assets/320_240/layout.json"

@@ -33,11 +33,12 @@ CI（GitHub Actions 的 `Anan Stack-chan` 工作流）构建完成后，会产�
 “下载”文件夹里往往留着以前的旧文件（`merged-binary.bin`、`merged-binary (1).bin` 之类）。烧之前确认用的是这次构建的：
 
 - 用最新解压出来的那个文件夹，不要混用不同次下载的文件；
-- 对一下文件大小：到 GitHub Actions 这次运行的日志里，构建结尾会列出 `0x20000 build/xiaozhi.bin 0x800000 build/configured_assets.bin` 等行，
-  对应文件的大小应和你手上的文件一致。Mac 上用 `ls -l <文件>` 看字节数。
-  `configured_assets.bin` 的大小应该不超过 8 MB（`8388608` 字节）。
+- 对一下文件大小：到 GitHub Actions 这次运行的日志里，打开 `Print firmware file sizes and checksums` 这一步，
+  里面有三个文件的 `ls -l` 字节数和 `sha256sum`。Mac 上用 `ls -l <文件>` 看字节数，和日志对一下；
+  想更保险就用 `shasum -a 256 <文件>` 对哈希。
+  `configured_assets.bin` 必须不超过 `8388608` 字节（8 MB）。
 
-## 方法一：首次烧录，或分区表变了（整包）
+## 方法一：首次烧录，或分区表 / bootloader / ESP-IDF 版本变了（整包）
 
 ```sh
 python3 -m esptool --chip esp32s3 -p <串口> -b 460800 write_flash 0x0 merged-binary.bin
@@ -48,16 +49,26 @@ python3 -m esptool --chip esp32s3 -p <串口> -b 460800 write_flash 0x0 merged-b
 
 ## 方法二：日常更新（保留 Wi-Fi 和绑定）
 
+只在 bootloader、分区表和 ESP-IDF 版本都和上次整包烧录时一样、并且设备从 `ota_0` 启动时用；否则用方法一。
+
 ```sh
 python3 -m esptool --chip esp32s3 -p <串口> -b 460800 write_flash 0x20000 xiaozhi.bin 0x800000 configured_assets.bin
 ```
 
-只改了应用或表情时用这个，不碰 NVS，所以 Wi-Fi 配置和绑定都在。
+只改了应用或表情时用这个。它只写 `ota_0` 和 `assets`，**不写** bootloader（`0x0`）、分区表（`0x8000`）和 otadata（`0xd000`），也不碰 NVS，所以 Wi-Fi 配置和绑定都在。
 
 > [!CAUTION]
 > 这条命令把应用写到 `ota_0`，只有在设备**从 `ota_0` 启动**时才对：整包烧录之后是这样，
 > 只要之后没有发生过空中升级（OTA）把启动分区切到 `ota_1`，就一直是这样。
 > 如果日常更新之后设备没有运行新固件（表情还是旧的，或行为没变），改用方法一整包烧录。
+
+如果日常更新后设备仍启动旧固件（因为一次 OTA 把启动分区切到了 `ota_1`），可以先试这条，清掉 otadata，让设备重新从 `ota_0` 启动：
+
+```sh
+python3 -m esptool --chip esp32s3 -p <串口> erase_region 0xd000 0x2000
+```
+
+拿不准的时候，方法一永远可用，代价只是重新输入 Wi-Fi。
 
 ## 烧完之后
 

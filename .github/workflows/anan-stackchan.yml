@@ -72,6 +72,13 @@ jobs:
           echo "=== wake-word related sdkconfig lines ==="
           grep -E "WAKE_WORD|SR_WN|SR_MN|USE_DEVICE_AEC|LANGUAGE" sdkconfig || true
 
+      - name: Print firmware file sizes and checksums
+        shell: bash
+        run: |
+          echo "=== firmware file sizes and checksums (compare with the files you flash) ==="
+          ls -l build/merged-binary.bin build/xiaozhi.bin build/configured_assets.bin
+          sha256sum build/merged-binary.bin build/xiaozhi.bin build/configured_assets.bin
+
       - name: Upload firmware
         uses: actions/upload-artifact@v7
         with:
