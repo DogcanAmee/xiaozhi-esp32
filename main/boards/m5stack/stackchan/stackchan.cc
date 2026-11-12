@@ -847,6 +847,9 @@ private:
             .dvp = &dvp_config,
         };
 
+        // P4 spike: CreateTrackedCamera does `new EspVideo` (a subclass of it). The text
+        // "new EspVideo" must stay in this file: scripts/build.py keys the camera_hmirror /
+        // camera_vflip build options on it.
         camera_ = anan::CreateTrackedCamera(video_config);
     }
 
