@@ -202,6 +202,75 @@ void head_usable_again_while_speaking_does_not_move() {
     assert(head.moves.empty());
 }
 
+// Steps every 20 ms over [from, to] with no inputs; returns how many steps asked to end the
+// conversation.
+int CountEnds(DirectorLogic& d, int64_t from, int64_t to) {
+    int ends = 0;
+    for (int64_t t = from; t <= to; t += 20) {
+        StepIn(d, t);
+        ends += d.end_conversation() ? 1 : 0;
+    }
+    return ends;
+}
+
+// self.conversation.end: the request comes while Listening, the goodbye is spoken, and the
+// close is asked for once, when Listening has settled again. A missing neck changes nothing.
+void end_conversation_after_goodbye() {
+    FakeHead head({0, 5});
+    DirectorLogic with_neck(&head);
+    DirectorLogic no_neck(nullptr);
+    for (DirectorLogic* d : {&with_neck, &no_neck}) {
+        StepIn(*d, 0, {}, Phase::Listening);
+        assert(CountEnds(*d, 20, 380) == 0);
+        StepIn(*d, 400, {DirectorInput::EndConversation()});
+        assert(!d->end_conversation());
+        assert(CountEnds(*d, 420, 980) == 0);
+        StepIn(*d, 1000, {}, Phase::Speaking);
+        assert(CountEnds(*d, 1020, 2980) == 0);
+        StepIn(*d, 3000, {}, Phase::Listening);
+        assert(!d->end_conversation());
+        // The phase settles on the first step at or after 3150.
+        assert(CountEnds(*d, 3020, 3140) == 0);
+        StepIn(*d, 3160);
+        assert(d->core().phase() == Phase::Listening);
+        assert(d->end_conversation());
+        assert(CountEnds(*d, 3180, 40000) == 0);
+    }
+}
+
+// The close follows the settled phase: a Listening blip shorter than the settle time in the
+// middle of the goodbye does not close.
+void end_conversation_ignores_unsettled_listening() {
+    DirectorLogic d(nullptr);
+    StepIn(d, 0, {}, Phase::Speaking);
+    Run(d, 20, 180);  // Speaking settles at 160
+    StepIn(d, 200, {DirectorInput::EndConversation()});
+    assert(CountEnds(d, 220, 1000) == 0);
+    StepIn(d, 1020, {}, Phase::Listening);
+    assert(!d.end_conversation());
+    StepIn(d, 1080, {}, Phase::Speaking);
+    assert(!d.end_conversation());
+    assert(CountEnds(d, 1100, 2000) == 0);
+    assert(d.core().phase() == Phase::Speaking);
+    StepIn(d, 2020, {}, Phase::Listening);
+    assert(CountEnds(d, 2040, 2160) == 0);
+    StepIn(d, 2180);
+    assert(d.end_conversation());
+}
+
+// Idle while the request waits: the conversation already ended, so nothing is closed, not
+// even when a new conversation starts listening later.
+void end_conversation_dropped_by_idle() {
+    DirectorLogic d(nullptr);
+    StepIn(d, 0, {}, Phase::Listening);
+    Run(d, 20, 400);
+    StepIn(d, 420, {DirectorInput::EndConversation()});
+    StepIn(d, 1000, {}, Phase::Idle);
+    assert(CountEnds(d, 1020, 3000) == 0);
+    StepIn(d, 3020, {}, Phase::Listening);
+    assert(CountEnds(d, 3040, 40000) == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -213,6 +282,9 @@ int main() {
     finished_gesture_releases_head();
     head_usable_again_in_idle_returns_to_rest_once();
     head_usable_again_while_speaking_does_not_move();
+    end_conversation_after_goodbye();
+    end_conversation_ignores_unsettled_listening();
+    end_conversation_dropped_by_idle();
     std::puts("test_director_logic: all passed");
     return 0;
 }

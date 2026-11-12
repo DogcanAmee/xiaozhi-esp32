@@ -47,6 +47,7 @@ idf.py flash
 | `self.neck.set_torque` | 开关舵机扭矩 |
 | `self.head.nod` | 点头，`count` 1–3（默认 1）；同意或说“是”时调用 |
 | `self.head.shake` | 摇头，`count` 1–3（默认 1）；不同意或说“不”时调用 |
+| `self.conversation.end` | 结束本次对话、回到待机；用户让她休息 / 睡觉 / 别说了或道别时，先说一句再见再调用；无参数，和脖子无关 |
 
 角度以中立姿态为零点，抬头为正。脖子不可用时 `self.head.*` 返回错误 “the neck is unavailable”；
 扭矩关着时所有动头工具都拒绝执行；请求队列满时返回 “busy, try again”。
@@ -57,6 +58,7 @@ idf.py flash
 头、灯环由 `BehaviorDirector`（`behavior_director.cc`）一个任务统一驱动，逻辑在 `behavior_core.cc`。
 头的仲裁优先级从高到低：语音指令转头（`set_angles`）> 动作（点头 / 摇头）> 人脸追踪 > 保持不动。
 高优先级结束后低优先级恢复；所有角度都过同一个限位函数（俯仰 5–85）。自动动作之间至少隔 4 秒，工具调用不受限。
+`self.conversation.end` 之后：她说完再见、回到“听用户说”时关闭对话（没说话则请求后 4 秒关）；期间对话已经结束则作废，30 秒内没等到时机也作废；只在“听用户说”时关。
 
 | 状态 | 脖子 | 脸 | 灯环 | 唤醒 |
 |---|---|---|---|---|

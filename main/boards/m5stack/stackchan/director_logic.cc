@@ -33,6 +33,12 @@ DirectorInput DirectorInput::ManualMove(int yaw_deg, int pitch_deg) {
     return in;
 }
 
+DirectorInput DirectorInput::EndConversation() {
+    DirectorInput in{};
+    in.type = Type::EndConversation;
+    return in;
+}
+
 DirectorLogic::DirectorLogic(HeadPort* head)
     : head_(head), player_([this](Pose pose, uint32_t duration_ms) {
           if (HeadUsable()) {
@@ -65,6 +71,8 @@ Outputs DirectorLogic::Step(int64_t now_ms, std::optional<Phase> phase,
     }
     Outputs out = core_.Poll(now_ms);
     ApplyHead(out, now_ms);
+    // After Poll, so a phase that settled in this iteration counts.
+    end_conversation_ = rest_.Step(core_.phase(), now_ms);
     return out;
 }
 
@@ -78,6 +86,9 @@ void DirectorLogic::Feed(const DirectorInput& in, int64_t now_ms) {
             break;
         case DirectorInput::Type::ManualMove:
             core_.OnManualMove(Pose{in.a, in.b}, now_ms);
+            break;
+        case DirectorInput::Type::EndConversation:
+            rest_.Request(now_ms);
             break;
     }
 }

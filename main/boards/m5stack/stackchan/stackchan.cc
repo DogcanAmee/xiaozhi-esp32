@@ -491,8 +491,8 @@ private:
             });
     }
 
-    // Gesture tools. Registered whether or not the neck started, so a missing neck is reported
-    // as an error rather than as an unknown tool.
+    // Gesture tools, plus self.conversation.end. Registered whether or not the neck started, so
+    // a missing neck is reported as an error rather than as an unknown tool.
     void InitializeHeadTools() {
         auto& mcp_server = McpServer::GetInstance();
 
@@ -514,6 +514,20 @@ private:
             }),
             [this](const PropertyList& properties) -> ToolResult {
                 return RequestHeadGesture(anan::Gesture::Shake, properties["count"].value<int>());
+            });
+
+        // Nothing to do with the neck: it only needs the director, so it works without one.
+        mcp_server.AddTool(
+            "self.conversation.end",
+            "End the current conversation and return to standby. Call this when the user tells "
+            "you to rest, sleep, stop, be quiet, or says goodbye. Say a short goodbye first, "
+            "then call this tool.",
+            PropertyList(),
+            [this](const PropertyList&) -> ToolResult {
+                if (director_ == nullptr || !director_->RequestEndConversation()) {
+                    return std::unexpected("busy, try again");
+                }
+                return true;
             });
     }
 

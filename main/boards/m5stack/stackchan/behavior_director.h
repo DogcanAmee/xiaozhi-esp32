@@ -46,6 +46,9 @@ public:
     // started.
     bool RequestGesture(Gesture g, int count);
     bool RequestManualMove(int yaw_deg, int pitch_deg);
+    // For self.conversation.end. Once the goodbye has been spoken (see RestRequest), the
+    // director asks the main task to close the conversation if the device is still Listening.
+    bool RequestEndConversation();
 
     // Latest level outputs, for later phases (P4 face tracking, P5 idle actions).
     bool tracking_enabled() const { return tracking_enabled_.load(std::memory_order_relaxed); }
@@ -79,6 +82,7 @@ private:
     void Run();
     bool Post(const DirectorInput& in);
     void ApplyLevelsAndLed(const Outputs& out);
+    void EndConversation();  // on the director task
 
     std::optional<NeckHead> head_;  // empty when there is no neck
     LedRing* led_;

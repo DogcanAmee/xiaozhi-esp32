@@ -11,6 +11,7 @@
 
 #include "behavior_core.h"
 #include "gesture_player.h"
+#include "rest_request.h"
 
 namespace anan {
 
@@ -29,7 +30,7 @@ public:
 
 // Plain data so it can be copied into a FreeRTOS queue.
 struct DirectorInput {
-    enum class Type : uint8_t { Emotion, Gesture, ManualMove };
+    enum class Type : uint8_t { Emotion, Gesture, ManualMove, EndConversation };
     Type type;
     int a;  // gesture id / yaw
     int b;  // gesture count / pitch
@@ -38,6 +39,7 @@ struct DirectorInput {
     static DirectorInput Emotion(const char* emotion);  // null -> empty string
     static DirectorInput GestureRequest(Gesture g, int count);
     static DirectorInput ManualMove(int yaw_deg, int pitch_deg);
+    static DirectorInput EndConversation();  // self.conversation.end
 };
 
 // Not thread-safe: drive it from a single task.
@@ -55,12 +57,16 @@ public:
     DirectorLogic& operator=(const DirectorLogic&) = delete;
 
     // One iteration, in this order: report a finished gesture to the core (before anything
-    // that could replace it), apply `phase` if set, feed `inputs`, Poll, drive the head.
+    // that could replace it), apply `phase` if set, feed `inputs`, Poll, drive the head, then
+    // decide end_conversation() from the settled phase.
     // Returns the Poll outputs for the caller's LED and level-output handling.
     Outputs Step(int64_t now_ms, std::optional<Phase> phase, std::span<const DirectorInput> inputs);
 
     const BehaviorCore& core() const { return core_; }
     bool gesture_playing() const { return player_.playing(); }
+    // True for exactly one Step per EndConversation input: the conversation should be closed
+    // now (see RestRequest). Only ever true while the settled phase is Listening.
+    bool end_conversation() const { return end_conversation_; }
 
 private:
     bool HeadUsable() const;
@@ -74,6 +80,8 @@ private:
     std::optional<Pose> gesture_base_;
     // HeadUsable() at the previous Step; empty before the first.
     std::optional<bool> head_was_usable_;
+    RestRequest rest_;
+    bool end_conversation_ = false;
 };
 
 }  // namespace anan

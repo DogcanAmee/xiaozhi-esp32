@@ -73,6 +73,8 @@ bool BehaviorDirector::RequestManualMove(int yaw_deg, int pitch_deg) {
     return Post(DirectorInput::ManualMove(yaw_deg, pitch_deg));
 }
 
+bool BehaviorDirector::RequestEndConversation() { return Post(DirectorInput::EndConversation()); }
+
 bool BehaviorDirector::Post(const DirectorInput& in) {
     if (queue_ == nullptr) {
         ESP_LOGW(TAG, "not started; request dropped");
@@ -102,8 +104,26 @@ void BehaviorDirector::Run() {
             ++n;
         }
         ApplyLevelsAndLed(logic_.Step(now, phase, std::span<const DirectorInput>(inputs, n)));
+        if (logic_.end_conversation()) {
+            EndConversation();
+        }
         vTaskDelay(pdMS_TO_TICKS(kLoopMs));
     }
+}
+
+void BehaviorDirector::EndConversation() {
+    ESP_LOGI(TAG, "goodbye spoken; closing the conversation");
+    // ToggleChatState() closes the audio channel only in Listening; in Idle it would open a
+    // conversation and in Speaking abort the speech. The director's phase lags the device
+    // state, so check it again on the main task. ToggleChatState() itself only sets an event
+    // bit that the main loop handles on its next pass, so a state change in between (e.g. the
+    // server closing the channel at the same moment) can still reach the toggle.
+    Application::GetInstance().Schedule([]() {
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() == kDeviceStateListening) {
+            app.ToggleChatState();
+        }
+    });
 }
 
 void BehaviorDirector::ApplyLevelsAndLed(const Outputs& out) {
