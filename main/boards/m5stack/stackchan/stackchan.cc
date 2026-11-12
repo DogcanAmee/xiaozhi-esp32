@@ -21,6 +21,9 @@
 #include <atomic>          // the power-save pin, written by tool calls and read on app tasks
 #include "py32_io_expander.h"
 #include "servo_neck.h"
+#include "anan_display.h"
+#include "behavior_director.h"
+#include "led_ring.h"
 
 #define TAG "StackChanBoard"
 
@@ -131,6 +134,8 @@ private:
     // VM EN, the StackChan base's servo power switch, and whether it read back high.
     static constexpr uint8_t SERVO_POWER_PIN = 0;
     static constexpr uint32_t SERVO_POWER_WAKE_MS = 250;
+    // The WS2812 data line of the base ring, driven by the PY32's own LED engine.
+    static constexpr uint8_t LED_DATA_PIN = 13;
     bool servo_power_on_ = false;
     // The power-save pin. Written by a tool call, read inside SetPowerSaveLevel, which the
     // application calls from twelve places on its own tasks.
@@ -152,6 +157,13 @@ private:
     // still talk.
     ServoNeck* neck_ = nullptr;
     TaskHandle_t neck_task_ = nullptr;
+    // Always created, even without the PY32, so GetLed() is never null and every device-state
+    // change still reaches the director.
+    anan::LedRing* led_ring_ = nullptr;
+    // The only driver of head, gesture and ring behavior. Created after the neck and the PY32.
+    anan::BehaviorDirector* director_ = nullptr;
+    // Set only in an emote build; the same object as display_.
+    anan::AnanDisplay* anan_display_ = nullptr;
     // Display*, not LcdDisplay*: in an emote build this holds an emote::EmoteDisplay, which is
     // not an LcdDisplay. Only ever read through GetDisplay(), and nothing LcdDisplay-specific is
     // called on it.
@@ -413,10 +425,11 @@ private:
 
         mcp_server.AddTool(
             "self.neck.set_angles",
-            "Turn the head to an absolute yaw and pitch over a given time. Non-blocking: this "
-            "returns as soon as the move is accepted, and the head keeps moving while the robot "
-            "speaks or changes expression. Pitch is limited to the range the neck can reach "
-            "without hitting a stop.",
+            "Turn the head to an absolute yaw and pitch and hold it there for about 8 seconds. "
+            "Non-blocking: this returns as soon as the move is accepted. Pitch is limited to the "
+            "range the neck can reach without hitting a stop; yaw is limited to -45..45 and the "
+            "result reports the angles actually used. duration_ms is accepted but ignored: the "
+            "head always turns at its own natural speed.",
             PropertyList({
                 Property("yaw", kPropertyTypeInteger, -90, 90),
                 // The same bounds the write path clamps to, declared here so an out-of-range
@@ -437,6 +450,16 @@ private:
                 int yaw = properties["yaw"].value<int>();
                 int pitch = properties["pitch"].value<int>();
                 int duration = properties["duration_ms"].value<int>();
+                if (director_ != nullptr) {
+                    // The director owns the head: a manual turn holds for a while, then the
+                    // normal behavior takes over again. It moves at its own default speed.
+                    anan::Pose used = anan::ClampPose({yaw, pitch});
+                    director_->RequestManualMove(used.yaw_deg, used.pitch_deg);
+                    cJSON* root = cJSON_CreateObject();
+                    cJSON_AddNumberToObject(root, "yaw", used.yaw_deg);
+                    cJSON_AddNumberToObject(root, "pitch", used.pitch_deg);
+                    return root;
+                }
                 neck_->StartMove(yaw, pitch, static_cast<uint32_t>(duration));
                 cJSON* root = cJSON_CreateObject();
                 cJSON_AddNumberToObject(root, "yaw", yaw);
@@ -465,22 +488,58 @@ private:
             });
     }
 
-    static constexpr const char* IDLE_FACE_REST = "neutral";
+    // Gesture tools. Registered whether or not the neck started, so a missing neck is reported
+    // as an error rather than as an unknown tool.
+    void InitializeHeadTools() {
+        auto& mcp_server = McpServer::GetInstance();
 
+        mcp_server.AddTool(
+            "self.head.nod",
+            "Nod the head. Call this when you agree or say yes.",
+            PropertyList({
+                Property("count", kPropertyTypeInteger, 1, 1, 3),
+            }),
+            [this](const PropertyList& properties) -> ToolResult {
+                return RequestHeadGesture(anan::Gesture::Nod, properties["count"].value<int>());
+            });
 
-    // How long a posture is left alone before the wander may move off it. The companion used 20
-    // seconds for the same reason: a posture wiped a second later was never read.
-    static constexpr int64_t IDLE_FACE_COOLDOWN_US = 18LL * 1000000LL;
-    static constexpr int64_t IDLE_FACE_MIN_GAP_US = 20LL * 1000000LL;
-    static constexpr int64_t IDLE_FACE_MAX_GAP_US = 45LL * 1000000LL;
+        mcp_server.AddTool(
+            "self.head.shake",
+            "Shake the head. Call this when you disagree or say no.",
+            PropertyList({
+                Property("count", kPropertyTypeInteger, 1, 1, 3),
+            }),
+            [this](const PropertyList& properties) -> ToolResult {
+                return RequestHeadGesture(anan::Gesture::Shake, properties["count"].value<int>());
+            });
+    }
 
-    static constexpr uint32_t IDLE_MOTION_DURATION_MS = 1400;
+    ToolResult RequestHeadGesture(anan::Gesture gesture, int count) {
+        if (neck_ == nullptr || director_ == nullptr) {
+            return std::unexpected("the neck is unavailable");
+        }
+        if (!neck_->torque_on()) {
+            return std::unexpected("torque is off; enable it with self.neck.set_torque "
+                                   "before asking the head to move");
+        }
+        director_->RequestGesture(gesture, anan::ClampGestureCount(count));
+        return true;
+    }
 
-    // Step away from `current` by min..max degrees, staying within `span` of `centre`.
-    // Direction is random when both ways fit and forced when only one does, so the head turns
-    // back rather than pressing against the edge of the band.
-    static int Clamp(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
-
+    // After the neck and the PY32: the director needs both (either may be null).
+    void InitializeBehavior() {
+        led_ring_ = new anan::LedRing(py32_, [this]() {
+            if (director_ != nullptr) {
+                director_->NotifyStateChanged();
+            }
+        });
+        director_ = new anan::BehaviorDirector(neck_, led_ring_);
+        director_->Start();
+        if (anan_display_ != nullptr) {
+            anan_display_->SetDirector(director_);
+        }
+        InitializeHeadTools();
+    }
 
     void InitializeServoNeck() {
         neck_ = new ServoNeck();
@@ -519,6 +578,23 @@ private:
         }
         ESP_LOGI(TAG, "PY32 ready (version 0x%02X)", version);
         EnableServoPower();
+        ConfigureLedDataPin();
+    }
+
+    // The PY32's WS2812 engine drives the ring through pin 13, which must be a push-pull output.
+    // Nothing else sets it up. A failure costs the ring, not the boot.
+    void ConfigureLedDataPin() {
+        if (py32_ == nullptr) {
+            return;
+        }
+        if (!py32_->SetDirection(LED_DATA_PIN, true)) {
+            ESP_LOGW(TAG, "LED data pin %d: SetDirection failed; the ring may stay dark",
+                     LED_DATA_PIN);
+        }
+        if (!py32_->SetDriveMode(LED_DATA_PIN, false)) {  // false = push-pull
+            ESP_LOGW(TAG, "LED data pin %d: SetDriveMode failed; the ring may stay dark",
+                     LED_DATA_PIN);
+        }
     }
 
     // The StackChan base gates servo power behind PY32 pin 0 - VM EN. Until this runs, the two
@@ -632,7 +708,9 @@ private:
         // panel_io first. Both are opaque handle typedefs, so getting it wrong compiles cleanly
         // and fails on the device.
 #if CONFIG_USE_EMOTE_MESSAGE_STYLE
-        display_ = new emote::EmoteDisplay(panel, panel_io, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        // AnanDisplay is EmoteDisplay plus the emotion hook for the behavior director.
+        anan_display_ = new anan::AnanDisplay(panel, panel_io, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        display_ = anan_display_;
 #else
         display_ = new SpiLcdDisplay(panel_io, panel,
                                     DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
@@ -691,11 +769,16 @@ public:
         InitializeCamera();
         InitializePy32();
         InitializeServoNeck();
+        InitializeBehavior();
         GetBacklight()->RestoreBrightness();
     }
 
     // Was NoLed from the base class until now, so every OnStateChanged() upstream makes went
-    // nowhere and the ring only lit when a tool asked it to by name.
+    // nowhere and the ring only lit when a tool asked it to by name. Now every state change
+    // reaches the behavior director, which picks the ring's colour.
+    virtual Led* GetLed() override {
+        return led_ring_;
+    }
 
     virtual AudioCodec* GetAudioCodec() override {
         static CoreS3AudioCodec audio_codec(i2c_bus_,
