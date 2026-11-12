@@ -10,7 +10,7 @@ enable_testing()
 # Add one host test executable and register it with ctest.
 #   anan_add_host_test(<name> <sources...>)
 # Example (later tasks):
-#   anan_add_host_test(test_head_gestures test_head_gestures.cc ../head_gestures.cc)
+#   anan_add_host_test(test_head_gestures test_head_gestures.cc ../head_gestures.cc ../behavior_core.cc)
 # Warnings are errors, and asserts are always active (NDEBUG is undefined even
 # in Release builds) because the tests rely on <cassert>.
 function(anan_add_host_test name)
@@ -21,3 +21,4 @@ function(anan_add_host_test name)
 endfunction()
 
 anan_add_host_test(test_behavior_core test_behavior_core.cc ../behavior_core.cc)
+anan_add_host_test(test_head_gestures test_head_gestures.cc ../head_gestures.cc ../behavior_core.cc)
