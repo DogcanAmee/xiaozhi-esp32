@@ -1,8 +1,12 @@
 #include "behavior_director.h"
 
+#include <atomic>
+
 #include <esp_log.h>
+#include <esp_random.h>
 #include <esp_timer.h>
 
+#include "anan_display.h"
 #include "application.h"
 
 namespace anan {
@@ -12,6 +16,19 @@ namespace {
 constexpr char TAG[] = "BehaviorDirector";
 
 int64_t NowMs() { return esp_timer_get_time() / 1000; }
+
+// Generated with the faces (scripts/anan_faces). Static storage: the names are string literals
+// that the scheduled display calls below point at.
+static constexpr IdleAction kIdleActions[] = {
+#define ANAN_IDLE_ACTION(n, d) {n, d},
+#include "anan_idle_actions.inc"
+#undef ANAN_IDLE_ACTION
+};
+
+uint32_t EspRandom(uint32_t n) { return n ? esp_random() % n : 0u; }
+
+// Touched only on the main task.
+std::atomic<bool> idle_face_missing_logged{false};
 
 Phase PhaseForState(DeviceState state) {
     switch (state) {
@@ -36,7 +53,7 @@ bool SameLed(const LedCmd& a, const LedCmd& b) {
 BehaviorDirector::BehaviorDirector(ServoNeck* neck, LedRing* led)
     : head_(neck != nullptr ? std::optional<NeckHead>(std::in_place, neck) : std::nullopt),
       led_(led),
-      logic_(head_ ? &*head_ : nullptr) {}
+      logic_(head_ ? &*head_ : nullptr, kIdleActions, EspRandom) {}
 
 void BehaviorDirector::Start() {
     queue_ = xQueueCreate(kQueueLength, sizeof(DirectorInput));
@@ -107,6 +124,7 @@ void BehaviorDirector::Run() {
         if (logic_.end_conversation()) {
             EndConversation();
         }
+        ApplyIdleFace();
         vTaskDelay(pdMS_TO_TICKS(kLoopMs));
     }
 }
@@ -125,6 +143,34 @@ void BehaviorDirector::EndConversation() {
         auto& app = Application::GetInstance();
         if (app.GetDeviceState() == kDeviceStateListening) {
             app.ToggleChatState();
+        }
+    });
+}
+
+void BehaviorDirector::ApplyIdleFace() {
+    const char* name = logic_.idle_play();
+    if (name == nullptr) {
+        if (!logic_.idle_restore()) {
+            return;
+        }
+        name = "neutral";
+    }
+    AnanDisplay* display = display_.load(std::memory_order_acquire);
+    if (display == nullptr) {
+        return;
+    }
+    // The display belongs to the main task. The director's phase lags the device state, so
+    // check it again there: a wake-up in between sets its own face, which must not be
+    // overwritten. PlayIdleAnimation does not go back through the director, so neither the
+    // animation nor its restore counts as a face set by someone else.
+    Application::GetInstance().Schedule([display, name]() {
+        if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle) {
+            return;
+        }
+        if (!display->PlayIdleAnimation(name) &&
+            !idle_face_missing_logged.exchange(true, std::memory_order_relaxed)) {
+            ESP_LOGW(TAG, "idle face \"%s\" could not be shown (further failures not logged)",
+                     name);
         }
     });
 }

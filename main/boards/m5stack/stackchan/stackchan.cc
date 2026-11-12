@@ -556,6 +556,7 @@ private:
         director_->Start();
         if (anan_display_ != nullptr) {
             anan_display_->SetDirector(director_);
+            director_->SetDisplay(anan_display_);
         }
         InitializeHeadTools();
     }

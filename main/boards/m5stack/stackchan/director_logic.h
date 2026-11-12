@@ -1,16 +1,18 @@
 #pragma once
 
 // One iteration of the behavior director: report a finished gesture, feed inputs to the core,
-// poll it and drive the head. The FreeRTOS task in behavior_director.cc only collects inputs,
-// reads the clock and calls Step(); the LED ring and the level outputs stay there.
-// No ESP-IDF dependency: compiled and tested on the host.
+// poll it, drive the head and decide the standby face animations. The FreeRTOS task in
+// behavior_director.cc only collects inputs, reads the clock and calls Step(); the LED ring and the
+// level outputs stay there. No ESP-IDF dependency: compiled and tested on the host.
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 
 #include "behavior_core.h"
 #include "gesture_player.h"
+#include "idle_actions.h"
 #include "rest_request.h"
 
 namespace anan {
@@ -52,13 +54,17 @@ public:
     static constexpr uint32_t kReturnToBaseMs = 300;
 
     // `head` may be null: no head command is sent, gestures finish at once.
-    explicit DirectorLogic(HeadPort* head);
+    // `idle_actions` (must outlive this object) and `rng` drive the standby face animations
+    // (see IdleActions); an empty list means none ever play.
+    explicit DirectorLogic(HeadPort* head, std::span<const IdleAction> idle_actions = {},
+                           std::function<uint32_t(uint32_t n)> rng = nullptr);
     DirectorLogic(const DirectorLogic&) = delete;
     DirectorLogic& operator=(const DirectorLogic&) = delete;
 
     // One iteration, in this order: report a finished gesture to the core (before anything
     // that could replace it), apply `phase` if set, feed `inputs`, Poll, drive the head, then
-    // decide end_conversation() from the settled phase.
+    // decide end_conversation() and the idle face animation from the settled phase.
+    // Every Emotion input counts as a face set by someone else (IdleActions::OnExternalEmotion).
     // Returns the Poll outputs for the caller's LED and level-output handling.
     Outputs Step(int64_t now_ms, std::optional<Phase> phase, std::span<const DirectorInput> inputs);
 
@@ -67,6 +73,11 @@ public:
     // True for exactly one Step per EndConversation input: the conversation should be closed
     // now (see RestRequest). Only ever true while the settled phase is Listening.
     bool end_conversation() const { return end_conversation_; }
+    // Standby face animation for this Step: start playing `idle_play()` now (null: nothing),
+    // or, when idle_restore(), the animation is over and the face goes back to "neutral".
+    // An animation stopped by a wake-up or a head turn gets no restore.
+    const char* idle_play() const { return idle_step_.play; }
+    bool idle_restore() const { return idle_step_.restore; }
 
 private:
     bool HeadUsable() const;
@@ -82,6 +93,8 @@ private:
     std::optional<bool> head_was_usable_;
     RestRequest rest_;
     bool end_conversation_ = false;
+    IdleActions idle_;
+    IdleActions::Step idle_step_;
 };
 
 }  // namespace anan

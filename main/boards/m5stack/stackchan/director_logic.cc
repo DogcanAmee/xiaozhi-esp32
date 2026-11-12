@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <string_view>
+#include <utility>
 
 #include "head_gestures.h"
 
@@ -39,12 +40,15 @@ DirectorInput DirectorInput::EndConversation() {
     return in;
 }
 
-DirectorLogic::DirectorLogic(HeadPort* head)
-    : head_(head), player_([this](Pose pose, uint32_t duration_ms) {
+DirectorLogic::DirectorLogic(HeadPort* head, std::span<const IdleAction> idle_actions,
+                             std::function<uint32_t(uint32_t n)> rng)
+    : head_(head),
+      player_([this](Pose pose, uint32_t duration_ms) {
           if (HeadUsable()) {
               head_->StageMove(pose, duration_ms);
           }
-      }) {}
+      }),
+      idle_(idle_actions, std::move(rng)) {}
 
 bool DirectorLogic::HeadUsable() const { return head_ != nullptr && head_->Usable(); }
 
@@ -73,6 +77,9 @@ Outputs DirectorLogic::Step(int64_t now_ms, std::optional<Phase> phase,
     ApplyHead(out, now_ms);
     // After Poll, so a phase that settled in this iteration counts.
     end_conversation_ = rest_.Step(core_.phase(), now_ms);
+    // After Poll too: idle_actions_enabled is false the moment the head is taken or the
+    // device leaves Idle, and an emotion fed above has already restarted the timer.
+    idle_step_ = idle_.Tick(out.idle_actions_enabled, now_ms);
     return out;
 }
 
@@ -80,6 +87,7 @@ void DirectorLogic::Feed(const DirectorInput& in, int64_t now_ms) {
     switch (in.type) {
         case DirectorInput::Type::Emotion:
             core_.OnEmotion(std::string_view(in.emotion), now_ms);
+            idle_.OnExternalEmotion(now_ms);
             break;
         case DirectorInput::Type::Gesture:
             core_.OnGestureRequest(static_cast<Gesture>(in.a), in.b, now_ms);

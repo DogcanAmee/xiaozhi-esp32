@@ -2,6 +2,7 @@
 
 // The emote face with one hook: every emotion is also handed to the behavior director, and an
 // emotion the asset pack does not carry falls back to "neutral" instead of leaving the old face.
+// The director's own standby animations use PlayIdleAnimation, which skips the hook.
 
 #include <atomic>
 #include <cstring>
@@ -35,6 +36,11 @@ public:
         ESP_LOGW("AnanDisplay", "no face for emotion \"%.23s\"; showing neutral", emotion);
         return EmoteDisplay::SetEmotion("neutral");
     }
+
+    // For the director's standby animations (and their return to "neutral"), on the main task.
+    // Not handed back to the director, so it does not count as a face set by someone else.
+    // False if the asset pack has no such animation; no fallback.
+    bool PlayIdleAnimation(const char* name) { return EmoteDisplay::SetEmotion(name); }
 
 private:
     std::atomic<BehaviorDirector*> director_{nullptr};

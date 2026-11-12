@@ -1,8 +1,9 @@
 #pragma once
 
-// The one task that drives BehaviorCore and turns its outputs into neck moves, gestures and
-// LED ring commands. Every public Notify*/Request* method only posts to this task (a queue,
-// or an atomic flag for device-state changes), so they are safe to call from any task.
+// The one task that drives BehaviorCore and turns its outputs into neck moves, gestures, LED
+// ring commands and the standby face animations. Every public Notify*/Request* method only posts to
+// this task (a queue, or an atomic flag for device-state changes), so they are safe to call from
+// any task.
 
 #include <atomic>
 #include <cstdint>
@@ -20,6 +21,8 @@
 
 namespace anan {
 
+class AnanDisplay;  // anan_display.h includes this header
+
 // Lives for the whole life of the firmware (the board owns it and never destroys it).
 class BehaviorDirector {
 public:
@@ -36,6 +39,9 @@ public:
 
     // Create the queue and the task. Call once.
     void Start();
+
+    // Where the standby face animations go. Null (the default): none are shown. Any task.
+    void SetDisplay(AnanDisplay* display) { display_.store(display, std::memory_order_release); }
 
     // Reads Application::GetDeviceState() on the director task. Never lost: a flag, not a
     // queued event.
@@ -83,6 +89,7 @@ private:
     bool Post(const DirectorInput& in);
     void ApplyLevelsAndLed(const Outputs& out);
     void EndConversation();  // on the director task
+    void ApplyIdleFace();    // on the director task
 
     std::optional<NeckHead> head_;  // empty when there is no neck
     LedRing* led_;
@@ -90,6 +97,7 @@ private:
     std::atomic<bool> state_dirty_{true};  // read the device state once at start
     std::atomic<bool> tracking_enabled_{false};
     std::atomic<bool> idle_actions_enabled_{false};
+    std::atomic<AnanDisplay*> display_{nullptr};
 
     // Everything below is touched only by the director task.
     DirectorLogic logic_;

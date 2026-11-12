@@ -4,10 +4,12 @@
 
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 #include <optional>
 #include <vector>
 
 #include "director_logic.h"
+#include "idle_actions.h"
 
 using namespace anan;
 
@@ -279,6 +281,107 @@ void end_conversation_dropped_by_idle() {
     assert(CountEnds(d, 3040, 40000) == 0);
 }
 
+// --- Idle actions -------------------------------------------------------------------------
+
+constexpr IdleAction kIdleTwo[] = {{"idle_wink", 1800}, {"idle_sleepy", 3200}};
+
+// Always 0: every gap is kIdleGapMinMs, and the pick is the first action not just played.
+uint32_t ZeroRng(uint32_t) { return 0; }
+
+struct IdleSeen {
+    std::vector<const char*> plays;
+    std::vector<int64_t> play_times;
+    std::vector<int64_t> restore_times;
+};
+
+// Steps every 20 ms over [from, to] with no inputs; collects idle_play / idle_restore.
+void RunIdle(DirectorLogic& d, int64_t from, int64_t to, IdleSeen& seen) {
+    for (int64_t t = from; t <= to; t += 20) {
+        StepIn(d, t);
+        if (d.idle_play() != nullptr) {
+            seen.plays.push_back(d.idle_play());
+            seen.play_times.push_back(t);
+        }
+        if (d.idle_restore()) {
+            seen.restore_times.push_back(t);
+        }
+    }
+}
+
+// (a) Idle with the head free: one play after the gap, one restore after its duration.
+void idle_action_plays_and_restores() {
+    FakeHead head({0, 5});
+    DirectorLogic d(&head, kIdleTwo, ZeroRng);
+    StepIn(d, 0, {}, Phase::Idle);
+    assert(d.idle_play() == nullptr && !d.idle_restore());
+    IdleSeen seen;
+    RunIdle(d, 20, 20000 + 3000, seen);  // Idle settles at 160; the gap ends at 20160
+    assert(seen.plays.size() == 1);
+    assert(std::strcmp(seen.plays[0], "idle_wink") == 0);
+    assert(seen.play_times[0] == 160 + kIdleGapMinMs);
+    assert(seen.restore_times.size() == 1);
+    assert(seen.restore_times[0] == seen.play_times[0] + 1800);
+    // The idle action never moves the head beyond the one return-to-rest of entering Idle.
+    assert(head.moves.size() <= 1);
+}
+
+// (b) Woken while an action plays: Listening stops it, and no restore is ever asked for.
+void idle_action_stopped_by_listening_never_restores() {
+    DirectorLogic d(nullptr, kIdleTwo, ZeroRng);
+    StepIn(d, 0, {}, Phase::Idle);
+    IdleSeen seen;
+    RunIdle(d, 20, 160 + kIdleGapMinMs, seen);
+    assert(seen.plays.size() == 1);
+    StepIn(d, 160 + kIdleGapMinMs + 20, {}, Phase::Listening);
+    RunIdle(d, 160 + kIdleGapMinMs + 40, 120000, seen);
+    assert(d.core().phase() == Phase::Listening);
+    assert(seen.plays.size() == 1);
+    assert(seen.restore_times.empty());
+}
+
+// (c) An emotion that reaches the director in Idle (e.g. the app's own "neutral") restarts
+// the timer: no play until a full gap after it.
+void external_emotion_in_idle_restarts_idle_timer() {
+    DirectorLogic d(nullptr, kIdleTwo, ZeroRng);
+    StepIn(d, 0, {}, Phase::Idle);
+    IdleSeen seen;
+    RunIdle(d, 20, 10000, seen);
+    StepIn(d, 10020, {DirectorInput::Emotion("neutral")});
+    RunIdle(d, 10040, 10020 + kIdleGapMinMs - 20, seen);
+    assert(seen.plays.empty());
+    RunIdle(d, 10020 + kIdleGapMinMs, 10020 + kIdleGapMinMs, seen);
+    assert(seen.plays.size() == 1);
+}
+
+// (d) No actions: nothing is ever emitted.
+void empty_idle_list_emits_nothing() {
+    DirectorLogic d(nullptr);
+    StepIn(d, 0, {}, Phase::Idle);
+    IdleSeen seen;
+    RunIdle(d, 20, 300000, seen);
+    assert(seen.plays.empty() && seen.restore_times.empty());
+}
+
+// (e) A manual head turn in Idle owns the head: nothing plays during the hold.
+void manual_hold_in_idle_blocks_idle_actions() {
+    FakeHead head({0, 5});
+    DirectorLogic d(&head, kIdleTwo, ZeroRng);
+    StepIn(d, 0, {}, Phase::Idle);
+    IdleSeen seen;
+    RunIdle(d, 20, 19000, seen);
+    // Keep turning the head every few seconds, past the point the gap would have ended.
+    for (int64_t t = 19020; t <= 60000; t += 20) {
+        std::vector<DirectorInput> in;
+        if ((t - 19020) % 5000 == 0) {
+            in.push_back(DirectorInput::ManualMove(10, 20));
+        }
+        Outputs out = StepIn(d, t, in);
+        assert(!out.idle_actions_enabled);
+        assert(d.idle_play() == nullptr && !d.idle_restore());
+    }
+    assert(seen.plays.empty());
+}
+
 }  // namespace
 
 int main() {
@@ -293,6 +396,11 @@ int main() {
     end_conversation_after_goodbye();
     end_conversation_ignores_unsettled_listening();
     end_conversation_dropped_by_idle();
+    idle_action_plays_and_restores();
+    idle_action_stopped_by_listening_never_restores();
+    external_emotion_in_idle_restarts_idle_timer();
+    empty_idle_list_emits_nothing();
+    manual_hold_in_idle_blocks_idle_actions();
     std::puts("test_director_logic: all passed");
     return 0;
 }
