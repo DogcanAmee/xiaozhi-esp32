@@ -71,7 +71,7 @@ void request_in_same_iteration_as_old_finish() {
     assert(d.core().owner() == HeadOwner::Gesture);
     assert(d.gesture_playing());
     assert(head.moves.size() == 7);
-    assert(Same(head.moves[6].pose, {-12, 5}));  // shake's first keyframe, from base (0, 5)
+    assert(Same(head.moves[6].pose, {-22, 5}));  // shake's first keyframe, from base (0, 5)
 
     const int invalidates_before = head.invalidates;
     StepIn(d, 1340, {DirectorInput::ManualMove(30, 40)});

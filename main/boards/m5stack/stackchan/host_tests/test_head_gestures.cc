@@ -90,15 +90,17 @@ void exact_tables_at_rest_base() {
 
     auto shake = BuildGesture(Gesture::Shake, base, 2);
     assert(shake.size() == 5);
-    assert(Same(shake[0].pose, {-12, 5}) && shake[0].duration_ms == 200);
-    assert(Same(shake[1].pose, {12, 5}) && shake[1].duration_ms == 300);
-    assert(Same(shake[4].pose, base) && shake[4].duration_ms == 200);
+    assert(Same(shake[0].pose, {-22, 5}) && shake[0].duration_ms == 240);
+    assert(Same(shake[1].pose, {22, 5}) && shake[1].duration_ms == 380);
+    assert(Same(shake[2].pose, {-22, 5}) && shake[2].duration_ms == 240);
+    assert(Same(shake[3].pose, {22, 5}) && shake[3].duration_ms == 380);
+    assert(Same(shake[4].pose, base) && shake[4].duration_ms == 240);
 
     auto quick = BuildGesture(Gesture::QuickShake, base, 1);
     assert(quick.size() == 3);
-    assert(Same(quick[0].pose, {-8, 5}) && quick[0].duration_ms == 120);
-    assert(Same(quick[1].pose, {8, 5}) && quick[1].duration_ms == 160);
-    assert(Same(quick[2].pose, base) && quick[2].duration_ms == 120);
+    assert(Same(quick[0].pose, {-14, 5}) && quick[0].duration_ms == 140);
+    assert(Same(quick[1].pose, {14, 5}) && quick[1].duration_ms == 200);
+    assert(Same(quick[2].pose, base) && quick[2].duration_ms == 140);
 
     auto tilt = BuildGesture(Gesture::Tilt, base, 3);
     assert(tilt.size() == 3);

@@ -42,10 +42,10 @@ std::vector<Keyframe> BuildGesture(Gesture g, Pose base, int count) {
             }
             break;
         case Gesture::Shake:
-            AddSwing(out, base, count, 12, 200, 300);
+            AddSwing(out, base, count, 22, 240, 380);
             break;
         case Gesture::QuickShake:
-            AddSwing(out, base, count, 8, 120, 160);
+            AddSwing(out, base, count, 14, 140, 200);
             break;
         case Gesture::Tilt: {
             Pose tilted = Offset(base, 10, 6);
