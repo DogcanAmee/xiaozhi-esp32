@@ -31,10 +31,13 @@
 #include <lvgl.h>
 #include <sys/ioctl.h>
 
-#include "camera.h"
+// Same order as esp_video.cc: the real V4L2 header before jpg/image_to_jpeg.h, which defines
+// fallback V4L2_PIX_FMT_* macros otherwise.
+#include "esp_video_device.h"
 #include "esp_video_init.h"
-#include "jpg/image_to_jpeg.h"
 #include "linux/videodev2.h"
+#include "camera.h"
+#include "jpg/image_to_jpeg.h"
 
 #define private public
 #include "esp_video.h"
