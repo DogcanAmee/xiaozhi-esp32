@@ -7,6 +7,7 @@ ops:
   - Conv
   - PRelu
   - Relu
+  - RequantizeLinear  # TensorBase::assign needs dl_base_requantize_linear
 kernels:
   - dl_c_s16_conv2d_11cn
   - dl_c_s16_conv2d_33cn
