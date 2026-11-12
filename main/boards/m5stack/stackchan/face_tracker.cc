@@ -431,7 +431,7 @@ void Run(Ctx* ctx) {
                 snprintf(doa_txt, sizeof(doa_txt), "L%+.1fq%d", doa.last.lag,
                          doa.last.confidence);
             }
-            char line[96];
+            char line[192];  // ~60 used; sized for the worst case of every field
             snprintf(line, sizeof(line), "%c f%.1f %d/%d %s %s Y%dP%d m%d %s s%d h%u%s", owner,
                      frames / secs, face_frames, frames, face_txt, delta_txt,
                      have_target ? target.yaw_deg : 0, have_target ? target.pitch_deg : 0,
